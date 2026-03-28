@@ -104,17 +104,40 @@ _install_essentials() {
         echo "node: already installed ($(node --version))"
     fi
 
-    # Tmux: brew on macOS, apt on Linux (no official pre-built binary available)
+    # Tmux
     if ! command -v tmux &>/dev/null; then
-        if [[ "$(uname)" == "Darwin" ]]; then
-            if ! command -v brew &>/dev/null; then
-                echo "Installing Homebrew..."
-                /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        if [[ "$(uname)" == "Linux" ]]; then
+            # Linux: use AppImage (pre-built, no compilation)
+            echo "Installing tmux from AppImage..."
+            mkdir -p "$HOME/.local/bin"
+            local latest_url=$(curl -fsSL https://api.github.com/repos/nelsonenzo/tmux-appimage/releases/latest \
+                | grep "browser_download_url.*tmux.appimage" | head -1 | cut -d'"' -f4)
+            if [[ -n "$latest_url" ]]; then
+                curl -fsSL -o "$HOME/.local/bin/tmux" "$latest_url"
+                chmod +x "$HOME/.local/bin/tmux"
+                echo "tmux: installed ($("$HOME/.local/bin/tmux" -V))"
+            else
+                # Fallback to apt
+                if command -v apt-get &>/dev/null; then
+                    sudo apt-get update -qq
+                    sudo apt-get install -y -qq tmux 2>/dev/null || true
+                fi
             fi
-            brew install tmux || true
-        elif command -v apt-get &>/dev/null; then
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq tmux 2>/dev/null || true
+        elif [[ "$(uname)" == "Darwin" ]]; then
+            # macOS: compile from source (small, fast -- unlike cmake/python)
+            echo "Installing tmux from source..."
+            local tmux_ver="3.6a"
+            local tmpdir="$(mktemp -d)"
+            curl -fsSL "https://github.com/tmux/tmux/releases/download/${tmux_ver}/tmux-${tmux_ver}.tar.gz" | tar xz -C "$tmpdir"
+            cd "$tmpdir/tmux-${tmux_ver}"
+            ./configure --prefix="$HOME/.local" 2>/dev/null && make -j$(sysctl -n hw.ncpu) 2>/dev/null && make install 2>/dev/null
+            cd - >/dev/null
+            rm -rf "$tmpdir"
+            if [[ -f "$HOME/.local/bin/tmux" ]]; then
+                echo "tmux: installed ($("$HOME/.local/bin/tmux" -V))"
+            else
+                echo "tmux: source build failed. Install manually: brew install tmux"
+            fi
         fi
     else
         echo "tmux: already installed ($(tmux -V))"

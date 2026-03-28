@@ -83,16 +83,47 @@ def test_symlink_source_exists(target, source_path):
 # 2. Shell script syntax validation
 # ============================================================
 
+def _detect_shell_from_shebang(path):
+    """Detect shell type from shebang line. Returns 'bash', 'zsh', or None."""
+    try:
+        first_line = path.read_text().split("\n", 1)[0]
+        if "zsh" in first_line:
+            return "zsh"
+        if "bash" in first_line or "sh" in first_line:
+            return "bash"
+    except (UnicodeDecodeError, IndexError):
+        pass
+    return None
+
+
 def find_shell_scripts():
-    """Find all .sh and .zsh files in the repo."""
+    """Find all .sh, .zsh files and extensionless scripts with shebangs."""
     scripts = []
+    skip_patterns = ["node_modules", ".git", "antidote", "prezto", "fasd/fasd"]
+
+    # Files with extensions
     for pattern, shell in [("**/*.sh", "bash"), ("**/*.zsh", "zsh")]:
         for path in REPO_ROOT.glob(pattern):
-            # Skip vendored / submodule dirs
             rel = path.relative_to(REPO_ROOT)
-            if any(part in str(rel) for part in ["node_modules", ".git", "antidote", "prezto", "fasd/fasd"]):
+            if any(part in str(rel) for part in skip_patterns):
                 continue
             scripts.append((str(rel), path, shell))
+
+    # Extensionless scripts in bin/ and etc/ (detect shell from shebang)
+    for dir_name in ["bin", "etc"]:
+        dir_path = REPO_ROOT / dir_name
+        if not dir_path.is_dir():
+            continue
+        for path in dir_path.iterdir():
+            if not path.is_file() or path.suffix:
+                continue
+            rel = path.relative_to(REPO_ROOT)
+            if any(part in str(rel) for part in skip_patterns):
+                continue
+            shell = _detect_shell_from_shebang(path)
+            if shell:
+                scripts.append((str(rel), path, shell))
+
     return scripts
 
 
