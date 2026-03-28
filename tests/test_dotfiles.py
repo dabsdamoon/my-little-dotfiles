@@ -123,10 +123,16 @@ def find_json_configs():
     return configs
 
 
+def _strip_json_comments(text):
+    """Strip // line comments for JSON5 files (e.g., openclaw.json)."""
+    import re
+    return re.sub(r'(?m)^\s*//.*$', '', text)
+
+
 @pytest.mark.parametrize("name,path", find_json_configs(),
                          ids=[c[0] for c in find_json_configs()])
 def test_json_valid(name, path):
-    text = path.read_text()
+    text = _strip_json_comments(path.read_text())
     try:
         json.loads(text)
     except json.JSONDecodeError as e:

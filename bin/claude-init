@@ -1,0 +1,135 @@
+#!/bin/bash
+#
+# claude-init: Scaffold a project-specific CLAUDE.md based on detected project type.
+#
+# Usage: claude-init [directory]
+#   Detects the project type and generates a CLAUDE.md with relevant conventions.
+#   Defaults to current directory.
+
+set -e
+
+DIR="${1:-.}"
+OUTPUT="$DIR/CLAUDE.md"
+
+if [[ -f "$OUTPUT" ]]; then
+  echo "CLAUDE.md already exists in $DIR. Aborting."
+  exit 1
+fi
+
+# Detect project type
+detect_type() {
+  local dir="$1"
+  local types=()
+
+  [[ -f "$dir/pyproject.toml" || -f "$dir/setup.py" || -f "$dir/requirements.txt" || -f "$dir/Pipfile" ]] && types+=("python")
+  [[ -f "$dir/package.json" ]] && types+=("node")
+  [[ -f "$dir/go.mod" ]] && types+=("go")
+  [[ -f "$dir/Cargo.toml" ]] && types+=("rust")
+  [[ -f "$dir/Makefile" || -f "$dir/CMakeLists.txt" ]] && types+=("c")
+  [[ -f "$dir/Dockerfile" || -f "$dir/docker-compose.yml" ]] && types+=("docker")
+
+  if [[ ${#types[@]} -eq 0 ]]; then
+    echo "generic"
+  else
+    printf '%s\n' "${types[@]}"
+  fi
+}
+
+TYPES=$(detect_type "$DIR")
+
+# Build CLAUDE.md
+cat > "$OUTPUT" << 'HEADER'
+# Project Instructions
+
+## Overview
+
+<!-- Brief description of this project. -->
+
+## Code Style
+
+HEADER
+
+# Append language-specific sections
+for TYPE in $TYPES; do
+  case "$TYPE" in
+    python)
+      cat >> "$OUTPUT" << 'PYTHON'
+
+### Python
+
+- Type hints on all public functions.
+- Use pathlib over os.path.
+- Use f-strings.
+- Tests: pytest. No mocks unless needed for external deps.
+- Formatter: follow project config (ruff/black).
+PYTHON
+      ;;
+    node)
+      cat >> "$OUTPUT" << 'NODE'
+
+### TypeScript / JavaScript
+
+- Strict TypeScript. No `any` unless interfacing with untyped externals.
+- `const` over `let`. No `var`.
+- Follow existing linter config (eslint/biome).
+- Tests: follow project framework (vitest/jest).
+NODE
+      ;;
+    go)
+      cat >> "$OUTPUT" << 'GO'
+
+### Go
+
+- Follow gofmt and go vet.
+- Always check errors. No `_` for error returns unless justified.
+- Prefer stdlib over third-party when reasonable.
+- Tests: go test. Table-driven tests preferred.
+GO
+      ;;
+    rust)
+      cat >> "$OUTPUT" << 'RUST'
+
+### Rust
+
+- Follow clippy lints.
+- Prefer Result over panic.
+- Use thiserror for library errors, anyhow for applications.
+RUST
+      ;;
+    docker)
+      cat >> "$OUTPUT" << 'DOCKER'
+
+### Docker
+
+- Multi-stage builds when possible.
+- Pin base image versions.
+- Do not run as root in production containers.
+DOCKER
+      ;;
+    generic)
+      cat >> "$OUTPUT" << 'GENERIC'
+
+- Follow existing project conventions.
+- Keep changes minimal and focused.
+GENERIC
+      ;;
+  esac
+done
+
+# Common footer
+cat >> "$OUTPUT" << 'FOOTER'
+
+## Git
+
+- Commit messages: imperative mood, concise, describe "why".
+- Do not commit unless asked.
+- Stage specific files, not `git add -A`.
+
+## Rules
+
+- Fix the stated problem. Do not refactor beyond the request.
+- Prefer simplicity over abstraction.
+- No emojis. No trailing summaries.
+FOOTER
+
+echo "Created $OUTPUT (detected: $TYPES)"

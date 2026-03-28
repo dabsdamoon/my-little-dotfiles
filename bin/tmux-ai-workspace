@@ -1,0 +1,47 @@
+#!/bin/bash
+#
+# tmux-ai-workspace: Create an AI-assisted development layout.
+#
+# Layout:
+# ┌──────────────────┬──────────────────┐
+# │                  │                  │
+# │   Editor (nvim)  │  Claude Code     │
+# │                  │                  │
+# │                  ├──────────────────┤
+# │                  │  Shell / Tests   │
+# │                  │                  │
+# └──────────────────┴──────────────────┘
+#
+# Usage: tmux-ai-workspace [session-name] [directory]
+
+set -e
+
+SESSION="${1:-ai-dev}"
+DIR="${2:-$(pwd)}"
+
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+  echo "Session '$SESSION' already exists. Attaching..."
+  tmux attach-session -t "$SESSION"
+  exit 0
+fi
+
+# Create session with editor pane
+tmux new-session -d -s "$SESSION" -c "$DIR"
+tmux rename-window -t "$SESSION:1" "dev"
+
+# Split right for Claude Code (50%)
+tmux split-window -h -t "$SESSION:1" -c "$DIR"
+
+# Split bottom-right for shell (50% of right side)
+tmux split-window -v -t "$SESSION:1.2" -c "$DIR"
+
+# Send commands to panes
+tmux send-keys -t "$SESSION:1.1" "nvim" Enter
+tmux send-keys -t "$SESSION:1.2" "claude" Enter
+# Pane 3 is a clean shell for running tests, git, etc.
+
+# Focus on editor pane
+tmux select-pane -t "$SESSION:1.1"
+
+# Attach
+tmux attach-session -t "$SESSION"

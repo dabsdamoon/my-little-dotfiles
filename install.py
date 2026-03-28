@@ -99,6 +99,13 @@ tasks = {
     # AI agent auth & shared config
     '~/.local/bin/ai-auth' : 'ai/auth/setup.sh',
     '~/.local/bin/ai-auth-status' : 'ai/auth/check.sh',
+
+    # OpenClaw
+    '~/.openclaw/openclaw.json' : 'openclaw/openclaw.json',
+
+    # Bins (AI tools)
+    '~/.local/bin/claude-init' : 'bin/claude-init',
+    '~/.local/bin/tmux-ai-workspace' : 'bin/tmux-ai-workspace',
 }
 
 
