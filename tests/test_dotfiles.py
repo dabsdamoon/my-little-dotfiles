@@ -168,3 +168,19 @@ def test_json_valid(name, path):
         json.loads(text)
     except json.JSONDecodeError as e:
         pytest.fail(f"Invalid JSON in {name}: {e}")
+
+
+# ============================================================
+# 4. Install script references validation
+# ============================================================
+
+def test_install_script_includes_cmonitor():
+    """Verify the install script installs claude-monitor (cmonitor)."""
+    text = (REPO_ROOT / "etc" / "install").read_text()
+    assert "claude-monitor" in text, "etc/install should install claude-monitor"
+
+
+def test_tmux_workspace_includes_cmonitor():
+    """Verify tmux-ai-workspace launches cmonitor in pane 3."""
+    text = (REPO_ROOT / "bin" / "tmux-ai-workspace").read_text()
+    assert "cmonitor" in text, "bin/tmux-ai-workspace should reference cmonitor"

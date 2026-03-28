@@ -40,7 +40,22 @@ cd ~/.dotfiles && python3 install.py
 ### Terminal Multiplexer (tmux)
 - Prefix: `Ctrl-a`, vim-like pane navigation
 - AI agent status indicator in status bar (shows CC/OC when active)
-- `tmux-ai-workspace` -- pre-built layout: editor + Claude Code + shell
+- `tmux-ai-workspace` -- pre-built AI dev layout:
+
+```
+┌──────────────────┬──────────────────┐
+│                  │                  │
+│   Shell (zsh)    │  Claude Code     │
+│                  │                  │
+│                  ├──────────────────┤
+│                  │  cmonitor        │
+│                  │  (token/cost)    │
+│                  │                  │
+└──────────────────┴──────────────────┘
+```
+
+### Monitoring
+- **[cmonitor](https://github.com/Maciek-roboblog/Claude-Code-Usage-Monitor)** -- real-time Claude Code token usage, burn rate, cost estimates, plan limit predictions. Auto-installed and runs in tmux-ai-workspace bottom-right pane.
 
 ### Git
 - **delta** pager, rebase-on-pull, rerere, diff3 conflict style
