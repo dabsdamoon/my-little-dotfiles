@@ -48,6 +48,8 @@ main() {
 
   local session_name=$(tmux display-message -p '#S')
 
+  # [right status] AI Agent Status (Claude Code / OpenClaw)
+  tmux set -ga status-right "#($cwd/ai-status.sh)"
   # [right status] CPU Usage
   tmux set -ga status-right "#($cwd/statusbar.tmux component-cpu -S $session_name)"
   # [right status] Memory Usage
