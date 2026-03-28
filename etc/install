@@ -1,15 +1,12 @@
 #!/bin/bash
 
 # Usage:
-# curl -fsSL https://dotfiles.wook.kr/etc/install | bash
+# curl -fsSL https://raw.githubusercontent.com/dabsdamoon/my-little-dotfiles/main/etc/install | bash
 
 cat <<EOF
-   @wookayin's              ███████╗██╗██╗     ███████╗███████╗
-   ██████╗  █████╗ ████████╗██╔════╝██║██║     ██╔════╝██╔════╝
-   ██╔══██╗██╔══██╗╚══██╔══╝█████╗  ██║██║     █████╗  ███████╗
-   ██║  ██║██║  ██║   ██║   ██╔══╝  ██║██║     ██╔══╝  ╚════██║
-   ██████╔╝╚█████╔╝   ██║   ██║     ██║███████╗███████╗███████║
-   ╚═════╝  ╚═════╝   ╚═╝   ╚═╝     ╚═╝╚══════╝╚══════╝╚══════╝
+   my-little-dotfiles
+   AI-agent-optimized dotfiles (based on wookayin/dotfiles)
+   https://github.com/dabsdamoon/my-little-dotfiles
 EOF
 
 # Check minimal dependencies
@@ -33,7 +30,7 @@ if _version_check "$(git --version | cut -d' ' -f3)" "2.8"; then
     GIT_FLAGS="-j8"
 fi
 
-GIT_REPO="https://github.com/wookayin/dotfiles.git"
+GIT_REPO="https://github.com/dabsdamoon/my-little-dotfiles.git"
 
 set -x
 set -e
