@@ -16,6 +16,13 @@
 
 set -e
 
+if ! command -v tmux &>/dev/null; then
+  echo "tmux is not installed. Install it first:"
+  echo "  brew install tmux    (macOS)"
+  echo "  apt install tmux     (Ubuntu/Debian)"
+  exit 1
+fi
+
 SESSION="${1:-ai-dev}"
 DIR="${2:-$(pwd)}"
 
