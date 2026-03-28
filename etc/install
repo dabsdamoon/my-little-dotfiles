@@ -148,6 +148,12 @@ _install_essentials() {
         if command -v pip3 &>/dev/null; then
             echo "Installing claude-monitor (cmonitor)..."
             pip3 install --user claude-monitor 2>/dev/null || true
+            # Symlink to ~/.local/bin so it's always in PATH
+            local pip_bin="$(python3 -m site --user-base 2>/dev/null)/bin"
+            if [[ -f "$pip_bin/cmonitor" ]]; then
+                ln -sf "$pip_bin/cmonitor" "$HOME/.local/bin/cmonitor"
+                ln -sf "$pip_bin/claude-monitor" "$HOME/.local/bin/claude-monitor"
+            fi
         elif command -v uv &>/dev/null; then
             uv tool install claude-monitor 2>/dev/null || true
         fi
