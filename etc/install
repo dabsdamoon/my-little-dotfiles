@@ -37,6 +37,28 @@ set -e
 
 # ============================================================================
 
+# Install essential tools via package manager
+_install_essentials() {
+    if [[ "$(uname)" == "Darwin" ]]; then
+        # macOS: use Homebrew
+        if ! command -v brew &> /dev/null; then
+            echo "Installing Homebrew..."
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        fi
+        echo "Installing essential packages (tmux, neovim, node)..."
+        brew install tmux neovim node 2>/dev/null || true
+    else
+        # Linux: try apt, then fallback to local installs later
+        if command -v apt-get &> /dev/null; then
+            echo "Installing essential packages..."
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq tmux neovim nodejs npm 2>/dev/null || true
+        fi
+    fi
+}
+
+_install_essentials
+
 cd ~
 
 git clone --recursive ${GIT_FLAGS} -b main ${GIT_REPO} ~/.dotfiles
