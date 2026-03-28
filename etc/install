@@ -37,75 +37,86 @@ set -e
 
 # ============================================================================
 
-# Install neovim from pre-built binary (fast, no compilation)
-_install_neovim_binary() {
-    local nvim_url=""
-    local os="$(uname)"
-    local arch="$(uname -m)"
-
-    if [[ "$os" == "Darwin" ]]; then
-        if [[ "$arch" == "arm64" ]]; then
-            nvim_url="https://github.com/neovim/neovim/releases/latest/download/nvim-macos-arm64.tar.gz"
-        else
-            nvim_url="https://github.com/neovim/neovim/releases/latest/download/nvim-macos-x86_64.tar.gz"
-        fi
-    elif [[ "$os" == "Linux" ]]; then
-        nvim_url="https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.tar.gz"
-    fi
-
-    if [[ -z "$nvim_url" ]]; then
-        echo "Cannot detect platform for neovim binary. Skipping."
-        return 1
-    fi
-
-    echo "Installing neovim from pre-built binary..."
+# Install a tool from a pre-built binary tarball into ~/.local/
+# Usage: _install_binary <name> <url> <binary_path_inside_tarball>
+_install_binary() {
+    local name="$1" url="$2" bin_path="$3"
+    echo "Installing $name from pre-built binary..."
     mkdir -p "$HOME/.local/bin"
     local tmpfile="$(mktemp)"
-    curl -fsSL -o "$tmpfile" "$nvim_url"
+    curl -fsSL -o "$tmpfile" "$url"
     tar xzf "$tmpfile" -C /tmp
-    rm -rf "$HOME/.local/nvim"
-    mv /tmp/nvim-* "$HOME/.local/nvim"
-    ln -sf "$HOME/.local/nvim/bin/nvim" "$HOME/.local/bin/nvim"
+    rm -rf "$HOME/.local/$name"
+    mv /tmp/${name}* "$HOME/.local/$name" 2>/dev/null || mv /tmp/${name}* "$HOME/.local/$name" 2>/dev/null
+    ln -sf "$HOME/.local/$name/$bin_path" "$HOME/.local/bin/$name"
     rm -f "$tmpfile"
-    echo "neovim: installed ($("$HOME/.local/bin/nvim" --version | head -1))"
+    echo "$name: installed ($("$HOME/.local/bin/$name" --version 2>/dev/null | head -1))"
+}
+
+_install_neovim() {
+    local os="$(uname)" arch="$(uname -m)"
+    if [[ "$os" == "Darwin" && "$arch" == "arm64" ]]; then
+        _install_binary nvim "https://github.com/neovim/neovim/releases/latest/download/nvim-macos-arm64.tar.gz" "bin/nvim"
+    elif [[ "$os" == "Darwin" ]]; then
+        _install_binary nvim "https://github.com/neovim/neovim/releases/latest/download/nvim-macos-x86_64.tar.gz" "bin/nvim"
+    elif [[ "$os" == "Linux" ]]; then
+        _install_binary nvim "https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.tar.gz" "bin/nvim"
+    fi
+}
+
+_install_node() {
+    local os="$(uname)" arch="$(uname -m)"
+    # Use Node 22 LTS
+    local node_ver="v22.16.0"
+    if [[ "$os" == "Darwin" && "$arch" == "arm64" ]]; then
+        _install_binary node "https://nodejs.org/dist/${node_ver}/node-${node_ver}-darwin-arm64.tar.gz" "bin/node"
+    elif [[ "$os" == "Darwin" ]]; then
+        _install_binary node "https://nodejs.org/dist/${node_ver}/node-${node_ver}-darwin-x64.tar.gz" "bin/node"
+    elif [[ "$os" == "Linux" ]]; then
+        _install_binary node "https://nodejs.org/dist/${node_ver}/node-${node_ver}-linux-x64.tar.gz" "bin/node"
+    fi
+    # Symlink npm and npx too
+    if [[ -d "$HOME/.local/node" ]]; then
+        ln -sf "$HOME/.local/node/bin/npm" "$HOME/.local/bin/npm"
+        ln -sf "$HOME/.local/node/bin/npx" "$HOME/.local/bin/npx"
+    fi
 }
 
 # Install essential tools
 _install_essentials() {
-    if [[ "$(uname)" == "Darwin" ]]; then
-        # macOS: use Homebrew for tmux and node
-        if ! command -v brew &> /dev/null; then
-            echo "Installing Homebrew..."
-            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-        fi
-        echo "Installing essential packages..."
-        for pkg in tmux node; do
-            if ! brew list "$pkg" &>/dev/null; then
-                brew install "$pkg" || true
-            else
-                echo "$pkg: already installed"
+    mkdir -p "$HOME/.local/bin"
+    export PATH="$HOME/.local/bin:$PATH"
+
+    echo "Installing essential packages..."
+
+    # Neovim: always use pre-built binary (fast, no compilation)
+    if ! command -v nvim &>/dev/null; then
+        _install_neovim || true
+    else
+        echo "neovim: already installed ($(nvim --version | head -1))"
+    fi
+
+    # Node: always use pre-built binary (avoids brew compiling python as dependency)
+    if ! command -v node &>/dev/null; then
+        _install_node || true
+    else
+        echo "node: already installed ($(node --version))"
+    fi
+
+    # Tmux: brew on macOS, apt on Linux (no official pre-built binary available)
+    if ! command -v tmux &>/dev/null; then
+        if [[ "$(uname)" == "Darwin" ]]; then
+            if ! command -v brew &>/dev/null; then
+                echo "Installing Homebrew..."
+                /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
             fi
-        done
-
-        # Neovim: prefer pre-built binary (brew compiles from source on older macOS)
-        if ! command -v nvim &>/dev/null; then
-            _install_neovim_binary || brew install neovim || true
-        else
-            echo "neovim: already installed"
-        fi
-    elif [[ "$(uname)" == "Linux" ]]; then
-        # Linux: tmux and node via apt, neovim via binary
-        if command -v apt-get &> /dev/null; then
-            echo "Installing essential packages..."
+            brew install tmux || true
+        elif command -v apt-get &>/dev/null; then
             sudo apt-get update -qq
-            sudo apt-get install -y -qq tmux nodejs npm 2>/dev/null || true
+            sudo apt-get install -y -qq tmux 2>/dev/null || true
         fi
-
-        if ! command -v nvim &>/dev/null; then
-            _install_neovim_binary || true
-        else
-            echo "neovim: already installed"
-        fi
+    else
+        echo "tmux: already installed ($(tmux -V))"
     fi
 }
 
