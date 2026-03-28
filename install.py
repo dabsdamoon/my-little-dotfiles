@@ -90,6 +90,15 @@ tasks = {
     '~/.config/pycodestyle' : 'python/pycodestyle',
     '~/.ptpython/config.py' : dict(action="remove"),
     '~/.config/ptpython/config.py' : 'python/ptpython.config.py',
+
+    # Claude Code
+    '~/.claude/CLAUDE.md' : 'claude/CLAUDE.md',
+    '~/.claude/settings.json' : 'claude/settings.json',
+    '~/.claude/commands' : 'claude/commands',
+
+    # AI agent auth & shared config
+    '~/.local/bin/ai-auth' : 'ai/auth/setup.sh',
+    '~/.local/bin/ai-auth-status' : 'ai/auth/check.sh',
 }
 
 
