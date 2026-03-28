@@ -63,8 +63,8 @@ _detect_plan() {
 }
 
 if command -v cmonitor &>/dev/null; then
-  local plan=$(_detect_plan)
-  tmux send-keys -t "$SESSION:1.3" "cmonitor --plan $plan" Enter
+  PLAN=$(_detect_plan)
+  tmux send-keys -t "$SESSION:1.3" "cmonitor --plan $PLAN" Enter
 elif command -v claude-monitor &>/dev/null; then
   tmux send-keys -t "$SESSION:1.3" "claude-monitor" Enter
 fi
