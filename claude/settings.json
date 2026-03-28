@@ -16,11 +16,5 @@
     ]
   },
   "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Write|Edit",
-        "command": "grep -rn 'sk-ant-\\|sk-proj-\\|AKIA\\|ghp_\\|gho_\\|glpat-' /dev/stdin 2>/dev/null && echo 'WARNING: Possible credential detected in file edit' || true"
-      }
-    ]
   }
 }
