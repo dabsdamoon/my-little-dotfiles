@@ -85,7 +85,8 @@ _install_node() {
 # Install essential tools
 _install_essentials() {
     mkdir -p "$HOME/.local/bin"
-    export PATH="$HOME/.local/bin:$PATH"
+    # Ensure common bin paths are in PATH (curl|bash may have minimal PATH)
+    export PATH="$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"
 
     echo "Installing essential packages..."
 
