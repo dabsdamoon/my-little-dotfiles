@@ -91,17 +91,18 @@ tasks = {
     '~/.ptpython/config.py' : dict(action="remove"),
     '~/.config/ptpython/config.py' : 'python/ptpython.config.py',
 
-    # Claude Code
+    # Claude Code (symlink only if not already present)
     '~/.claude/CLAUDE.md' : 'claude/CLAUDE.md',
-    '~/.claude/settings.json' : 'claude/settings.json',
     '~/.claude/commands' : 'claude/commands',
+    # NOTE: ~/.claude/settings.json is managed by Claude Code at runtime.
+    # Do not symlink -- instead, copy defaults only if missing (see post_actions).
 
     # AI agent auth & shared config
     '~/.local/bin/ai-auth' : 'ai/auth/setup.sh',
     '~/.local/bin/ai-auth-status' : 'ai/auth/check.sh',
 
-    # OpenClaw
-    '~/.openclaw/openclaw.json' : 'openclaw/openclaw.json',
+    # NOTE: ~/.openclaw/openclaw.json is managed by OpenClaw at runtime.
+    # Do not symlink -- instead, copy defaults only if missing (see post_actions).
 
     # Bins (AI tools)
     '~/.local/bin/claude-init' : 'bin/claude-init',
@@ -118,6 +119,27 @@ os.chdir(__PATH__)
 
 
 post_actions = []
+post_actions += [  # Copy AI agent config defaults (only if not already present)
+    '''#!/bin/bash
+    # Copy Claude Code settings.json defaults (do not overwrite if exists)
+    mkdir -p ~/.claude
+    if [ ! -f ~/.claude/settings.json ]; then
+        cp "$HOME/.dotfiles/claude/settings.json" ~/.claude/settings.json
+        echo "Created ~/.claude/settings.json from defaults"
+    else
+        echo "~/.claude/settings.json already exists, skipped"
+    fi
+
+    # Copy OpenClaw config defaults (do not overwrite if exists)
+    mkdir -p ~/.openclaw
+    if [ ! -f ~/.openclaw/openclaw.json ]; then
+        cp "$HOME/.dotfiles/openclaw/openclaw.json" ~/.openclaw/openclaw.json
+        echo "Created ~/.openclaw/openclaw.json from defaults"
+    else
+        echo "~/.openclaw/openclaw.json already exists, skipped"
+    fi
+''']
+
 post_actions += [  # Check symbolic link at $HOME
     '''#!/bin/bash
     # Check whether ~/.vim and ~/.zsh are well-configured
