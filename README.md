@@ -45,7 +45,7 @@ cd ~/.dotfiles && python3 install.py
 ```
 ┌──────────────────┬──────────────────┐
 │                  │                  │
-│   Shell (zsh)    │  Claude Code     │
+│  Claude Code     │  Shell (zsh)     │
 │                  │                  │
 │                  ├──────────────────┤
 │                  │  cmonitor        │
