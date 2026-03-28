@@ -119,6 +119,12 @@ os.chdir(__PATH__)
 
 
 post_actions = []
+post_actions += [  # Install terminfo for tmux-256color
+    '''#!/bin/bash
+    # Install terminfo entries (tmux-256color, wezterm, etc.)
+    bash "$HOME/.dotfiles/etc/terminfo.sh" 2>/dev/null || true
+''']
+
 post_actions += [  # Copy AI agent config defaults (only if not already present)
     '''#!/bin/bash
     # Copy Claude Code settings.json defaults (do not overwrite if exists)
