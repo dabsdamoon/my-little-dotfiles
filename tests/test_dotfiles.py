@@ -181,6 +181,14 @@ def test_install_script_includes_cmonitor():
 
 
 def test_tmux_workspace_includes_cmonitor():
-    """Verify tmux-ai-workspace launches cmonitor in pane 3."""
+    """Verify tmux-ai-workspace references both Claude and Codex monitors."""
     text = (REPO_ROOT / "bin" / "tmux-ai-workspace").read_text()
     assert "cmonitor" in text, "bin/tmux-ai-workspace should reference cmonitor"
+    assert "codex-cmonitor" in text, "bin/tmux-ai-workspace should reference codex-cmonitor"
+
+
+def test_tmux_workspace_supports_codex_agent():
+    """Verify tmux-ai-workspace supports a Codex agent mode."""
+    text = (REPO_ROOT / "bin" / "tmux-ai-workspace").read_text()
+    assert "--agent" in text, "tmux-ai-workspace should expose an --agent flag"
+    assert "codex" in text, "tmux-ai-workspace should support codex"

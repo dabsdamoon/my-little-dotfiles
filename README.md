@@ -2,7 +2,7 @@
 
 Personal dotfiles for macOS and Linux, optimized for AI-agent-assisted development.
 
-Based on [wookayin/dotfiles](https://github.com/wookayin/dotfiles) with added support for Claude Code, OpenClaw, and modern AI coding workflows.
+Based on [wookayin/dotfiles](https://github.com/wookayin/dotfiles) with added support for Claude Code, Codex, OpenClaw, and modern AI coding workflows.
 
 ## One-Liner Installation
 
@@ -29,7 +29,7 @@ cd ~/.dotfiles && python3 install.py
 ### Shell (zsh)
 - **Prezto** framework + **Antidote** plugin manager + **Powerlevel10k** prompt
 - Vi-mode, fzf integration, autosuggestions, syntax highlighting
-- `ai-agents.zsh` -- aliases for Claude Code, OpenClaw, 1Password CLI, auth helpers
+- `ai-agents.zsh` -- aliases for Claude Code, Codex, OpenClaw, 1Password CLI, auth helpers
 
 ### Editor (Neovim)
 - **Lazy.nvim** plugin manager, **mason.nvim** for LSP
@@ -39,23 +39,24 @@ cd ~/.dotfiles && python3 install.py
 
 ### Terminal Multiplexer (tmux)
 - Prefix: `Ctrl-a`, vim-like pane navigation
-- AI agent status indicator in status bar (shows CC/OC when active)
+- AI agent status indicator in status bar (shows CC/CX/OC when active)
 - `tmux-ai-workspace` -- pre-built AI dev layout:
 
 ```
 ┌──────────────────┬──────────────────┐
 │                  │                  │
-│  Claude Code     │  Shell (zsh)     │
+│  AI Agent        │  Shell (zsh)     │
 │                  │                  │
 │                  ├──────────────────┤
-│                  │  cmonitor        │
-│                  │  (token/cost)    │
+│                  │  Monitor         │
+│                  │  (agent aware)   │
 │                  │                  │
 └──────────────────┴──────────────────┘
 ```
 
 ### Monitoring
 - **[cmonitor](https://github.com/Maciek-roboblog/Claude-Code-Usage-Monitor)** -- real-time Claude Code token usage, burn rate, cost estimates, plan limit predictions. Auto-installed and runs in tmux-ai-workspace bottom-right pane.
+- **`codex-cmonitor`** -- local Codex session monitor for tmux panes, with responsive live layouts and recent trend display.
 
 ### Git
 - **delta** pager, rebase-on-pull, rerere, diff3 conflict style
@@ -66,6 +67,7 @@ cd ~/.dotfiles && python3 install.py
 | Tool | Config Location | Auth |
 |------|----------------|------|
 | **Claude Code** | `~/.claude/CLAUDE.md`, `~/.claude/commands/` | OAuth (`claude login`) |
+| **Codex** | `~/.codex/` | OpenAI login / local Codex CLI auth |
 | **OpenClaw** | `~/.openclaw/openclaw.json` | OAuth (`openclaw onboard`) |
 | **1Password CLI** | On-demand via `ai-key` function | `op signin` |
 
@@ -76,7 +78,23 @@ cd ~/.dotfiles && python3 install.py
 - `ai-auth-status` -- check auth health
 - `ai-status` -- show installed agents and gateway status
 - `claude-init` -- scaffold a project-specific CLAUDE.md
-- `tmux-ai-workspace [name] [dir]` -- launch AI dev layout
+- `tmux-ai-workspace [--agent claude|codex] [name] [dir]` -- launch AI dev layout
+
+### Codex tmux workspace
+
+Use Codex mode when you want the left pane to run the `codex` CLI and the bottom-right pane to run `codex-cmonitor`.
+
+Examples:
+
+```bash
+tmux-ai-workspace --agent codex
+tmux-ai-workspace --agent codex codex-dev ~/work/project
+```
+
+Notes:
+- `codex` must be installed and authenticated locally.
+- `codex-cmonitor` should be available on `PATH` for the monitor pane.
+- the Codex monitor is account-wide by default, so it aggregates usage across all active Codex sessions rather than showing only the current tmux pane.
 
 ## Updating
 

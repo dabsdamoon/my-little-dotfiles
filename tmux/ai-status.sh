@@ -6,7 +6,8 @@
 # Output examples:
 #   " CC " (Claude Code session active)
 #   " OC " (OpenClaw gateway running)
-#   " CC OC " (both active)
+#   " CX " (Codex session active)
+#   " CC OC CX " (multiple active)
 #   "" (nothing running)
 
 set -e
@@ -21,6 +22,11 @@ fi
 # Check for OpenClaw gateway (tmux session or process)
 if tmux has-session -t openclaw 2>/dev/null || pgrep -qf "openclaw gateway" 2>/dev/null; then
   STATUS="${STATUS} OC"
+fi
+
+# Check for active Codex CLI processes
+if pgrep -qf "codex" 2>/dev/null; then
+  STATUS="${STATUS} CX"
 fi
 
 if [[ -n "$STATUS" ]]; then
