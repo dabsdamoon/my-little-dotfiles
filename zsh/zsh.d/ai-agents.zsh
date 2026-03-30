@@ -52,6 +52,19 @@ if (( $+commands[openclaw] )); then
 fi
 
 # ============================================================
+# Codex
+# ============================================================
+
+if (( $+commands[codex] )); then
+  alias cx="codex"
+  alias cxx="codex --full-auto"
+fi
+
+if (( $+commands[codex-cmonitor] )); then
+  alias cxm="codex-cmonitor --watch --trend-minutes 15"
+fi
+
+# ============================================================
 # Auth Management (OAuth-first)
 # ============================================================
 
@@ -132,6 +145,21 @@ ai-status() {
     fi
   else
     echo "not installed"
+  fi
+
+  # Codex
+  echo -n "Codex:       "
+  if (( $+commands[codex] )); then
+    echo "installed ($(codex --version 2>/dev/null | head -1 || echo 'unknown version'))"
+  else
+    echo "not installed"
+  fi
+
+  echo -n "Codex Monitor:"
+  if (( $+commands[codex-cmonitor] )); then
+    echo " installed"
+  else
+    echo " not installed"
   fi
 
   # 1Password CLI
