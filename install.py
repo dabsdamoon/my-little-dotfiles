@@ -146,6 +146,71 @@ post_actions += [  # Copy AI agent config defaults (only if not already present)
     fi
 ''']
 
+post_actions += [  # Install codex-cmonitor (requires Python 3.13+)
+    '''#!/bin/bash
+    # Install codex-cmonitor (Codex token usage monitor)
+    _version_check() {
+        [ "$2" = "$(echo -e "$1\n$2" | sort -V | head -n1)" ]
+    }
+
+    if command -v codex-cmonitor &>/dev/null; then
+        echo "codex-cmonitor: already installed"
+        exit 0
+    fi
+
+    # Find a Python 3.13+ interpreter
+    py=""
+    for candidate in python3.13 python3; do
+        if command -v "$candidate" &>/dev/null; then
+            ver="$("$candidate" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+            if _version_check "$ver" "3.13"; then
+                py="$candidate"
+                break
+            fi
+        fi
+    done
+
+    if [[ -z "$py" ]]; then
+        echo "Python 3.13+ not found. Installing..."
+        if [[ "$(uname)" == "Darwin" ]] && command -v brew &>/dev/null; then
+            brew install python@3.13 || true
+        elif [[ "$(uname)" == "Linux" ]] && command -v apt-get &>/dev/null; then
+            sudo add-apt-repository -y ppa:deadsnakes/ppa 2>/dev/null || true
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq python3.13 python3.13-venv 2>/dev/null || true
+        else
+            echo "WARNING: Please install Python 3.13+ manually, then re-run dotfiles update."
+            exit 0
+        fi
+        # Re-check
+        for candidate in python3.13 python3; do
+            if command -v "$candidate" &>/dev/null; then
+                ver="$("$candidate" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+                if _version_check "$ver" "3.13"; then
+                    py="$candidate"
+                    break
+                fi
+            fi
+        done
+    fi
+
+    if [[ -z "$py" ]]; then
+        echo "WARNING: codex-cmonitor requires Python 3.13+, skipping."
+        exit 0
+    fi
+
+    echo "Installing codex-cmonitor using $py ($($py --version))..."
+    $py -m pip install --user "codex-cmonitor @ git+https://github.com/dabsdamoon/codex-cmonitor.git" 2>/dev/null || true
+    pip_bin="$($py -m site --user-base 2>/dev/null)/bin"
+    mkdir -p "$HOME/.local/bin"
+    if [[ -f "$pip_bin/codex-cmonitor" ]]; then
+        ln -sf "$pip_bin/codex-cmonitor" "$HOME/.local/bin/codex-cmonitor"
+        echo "codex-cmonitor: installed"
+    else
+        echo "WARNING: codex-cmonitor install may have failed, check pip output."
+    fi
+''']
+
 post_actions += [  # Check symbolic link at $HOME
     '''#!/bin/bash
     # Check whether ~/.vim and ~/.zsh are well-configured
