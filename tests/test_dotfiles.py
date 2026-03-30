@@ -180,6 +180,12 @@ def test_install_script_includes_cmonitor():
     assert "claude-monitor" in text, "etc/install should install claude-monitor"
 
 
+def test_install_script_includes_codex_cmonitor():
+    """Verify the install script installs codex-cmonitor."""
+    text = (REPO_ROOT / "etc" / "install").read_text()
+    assert "codex-cmonitor" in text, "etc/install should install codex-cmonitor"
+
+
 def test_tmux_workspace_includes_cmonitor():
     """Verify tmux-ai-workspace references both Claude and Codex monitors."""
     text = (REPO_ROOT / "bin" / "tmux-ai-workspace").read_text()
