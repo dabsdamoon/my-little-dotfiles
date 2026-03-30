@@ -199,15 +199,36 @@ post_actions += [  # Install codex-cmonitor (requires Python 3.13+)
         exit 0
     fi
 
+    CMONITOR_REPO="codex-cmonitor @ git+https://github.com/dabsdamoon/codex-cmonitor.git"
     echo "Installing codex-cmonitor using $py ($($py --version))..."
-    $py -m pip install --user "codex-cmonitor @ git+https://github.com/dabsdamoon/codex-cmonitor.git" 2>/dev/null || true
-    pip_bin="$($py -m site --user-base 2>/dev/null)/bin"
     mkdir -p "$HOME/.local/bin"
+
+    # Prefer pipx > uv > pip (PEP 668 blocks pip --user on Homebrew Python)
+    if command -v pipx &>/dev/null; then
+        pipx install --python "$py" "$CMONITOR_REPO" && echo "codex-cmonitor: installed (pipx)" && exit 0
+    fi
+    if command -v uv &>/dev/null; then
+        uv tool install --python "$py" "$CMONITOR_REPO" && echo "codex-cmonitor: installed (uv)" && exit 0
+    fi
+
+    # Fallback: install pipx via brew, then use it
+    if command -v brew &>/dev/null; then
+        echo "Installing pipx via Homebrew..."
+        brew install pipx 2>/dev/null || true
+        pipx ensurepath 2>/dev/null || true
+        if command -v pipx &>/dev/null; then
+            pipx install --python "$py" "$CMONITOR_REPO" && echo "codex-cmonitor: installed (pipx)" && exit 0
+        fi
+    fi
+
+    # Last resort: pip with --break-system-packages
+    $py -m pip install --user --break-system-packages "$CMONITOR_REPO" 2>/dev/null || true
+    pip_bin="$($py -m site --user-base 2>/dev/null)/bin"
     if [[ -f "$pip_bin/codex-cmonitor" ]]; then
         ln -sf "$pip_bin/codex-cmonitor" "$HOME/.local/bin/codex-cmonitor"
-        echo "codex-cmonitor: installed"
+        echo "codex-cmonitor: installed (pip)"
     else
-        echo "WARNING: codex-cmonitor install may have failed, check pip output."
+        echo "WARNING: codex-cmonitor install failed. Try: pipx install 'codex-cmonitor @ git+https://github.com/dabsdamoon/codex-cmonitor.git'"
     fi
 ''']
 

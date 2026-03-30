@@ -191,11 +191,22 @@ _install_essentials() {
         local py313_ver
         py313_ver="$($py313 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "0.0")"
         if _version_check "$py313_ver" "3.13"; then
+            local cmonitor_repo="codex-cmonitor @ git+https://github.com/dabsdamoon/codex-cmonitor.git"
             echo "Installing codex-cmonitor..."
-            $py313 -m pip install --user "codex-cmonitor @ git+https://github.com/dabsdamoon/codex-cmonitor.git" 2>/dev/null || true
-            local pip_bin="$($py313 -m site --user-base 2>/dev/null)/bin"
-            if [[ -f "$pip_bin/codex-cmonitor" ]]; then
-                ln -sf "$pip_bin/codex-cmonitor" "$HOME/.local/bin/codex-cmonitor"
+            if command -v pipx &>/dev/null; then
+                pipx install --python "$py313" "$cmonitor_repo" || true
+            elif command -v uv &>/dev/null; then
+                uv tool install --python "$py313" "$cmonitor_repo" || true
+            elif command -v brew &>/dev/null; then
+                brew install pipx 2>/dev/null || true
+                pipx ensurepath 2>/dev/null || true
+                pipx install --python "$py313" "$cmonitor_repo" || true
+            else
+                $py313 -m pip install --user --break-system-packages "$cmonitor_repo" 2>/dev/null || true
+                local pip_bin="$($py313 -m site --user-base 2>/dev/null)/bin"
+                if [[ -f "$pip_bin/codex-cmonitor" ]]; then
+                    ln -sf "$pip_bin/codex-cmonitor" "$HOME/.local/bin/codex-cmonitor"
+                fi
             fi
         else
             echo "WARNING: codex-cmonitor requires Python 3.13+, skipping."
