@@ -124,19 +124,11 @@ _install_essentials() {
                 fi
             fi
         elif [[ "$(uname)" == "Darwin" ]]; then
-            # macOS: compile from source (small, fast -- unlike cmake/python)
-            echo "Installing tmux from source..."
-            local tmux_ver="3.6a"
-            local tmpdir="$(mktemp -d)"
-            curl -fsSL "https://github.com/tmux/tmux/releases/download/${tmux_ver}/tmux-${tmux_ver}.tar.gz" | tar xz -C "$tmpdir"
-            cd "$tmpdir/tmux-${tmux_ver}"
-            ./configure --prefix="$HOME/.local" 2>/dev/null && make -j$(sysctl -n hw.ncpu) 2>/dev/null && make install 2>/dev/null
-            cd - >/dev/null
-            rm -rf "$tmpdir"
-            if [[ -f "$HOME/.local/bin/tmux" ]]; then
-                echo "tmux: installed ($("$HOME/.local/bin/tmux" -V))"
+            if command -v brew &>/dev/null; then
+                echo "Installing tmux via Homebrew..."
+                brew install tmux
             else
-                echo "tmux: source build failed. Install manually: brew install tmux"
+                echo "tmux: Homebrew not found. Install manually: brew install tmux"
             fi
         fi
     else
@@ -169,17 +161,19 @@ _install_essentials() {
 
     # Claude Code Usage Monitor (cmonitor)
     if ! command -v cmonitor &>/dev/null && ! command -v claude-monitor &>/dev/null; then
-        if command -v pip3 &>/dev/null; then
-            echo "Installing claude-monitor (cmonitor)..."
-            pip3 install --user claude-monitor 2>/dev/null || true
-            # Symlink to ~/.local/bin so it's always in PATH
+        echo "Installing claude-monitor (cmonitor)..."
+        if command -v pipx &>/dev/null; then
+            pipx install claude-monitor 2>/dev/null || true
+        elif command -v uv &>/dev/null; then
+            uv tool install claude-monitor 2>/dev/null || true
+        else
+            # Fallback: pip with --break-system-packages (PEP 668)
+            pip3 install --user --break-system-packages claude-monitor 2>/dev/null || true
             local pip_bin="$(python3 -m site --user-base 2>/dev/null)/bin"
             if [[ -f "$pip_bin/cmonitor" ]]; then
                 ln -sf "$pip_bin/cmonitor" "$HOME/.local/bin/cmonitor"
                 ln -sf "$pip_bin/claude-monitor" "$HOME/.local/bin/claude-monitor"
             fi
-        elif command -v uv &>/dev/null; then
-            uv tool install claude-monitor 2>/dev/null || true
         fi
     else
         echo "cmonitor: already installed"
