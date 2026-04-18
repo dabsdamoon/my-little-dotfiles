@@ -67,6 +67,12 @@ fi
 tmux new-session -d -s "$SESSION" -c "$DIR"
 tmux rename-window -t "$SESSION:1" "dev"
 
+# Force statusbar refresh: cold server start can race with the config's
+# run-shell, leaving the "Loading ~/.tmux/statusbar.tmux..." placeholder.
+if [ -x "$HOME/.tmux/statusbar.tmux" ]; then
+  tmux run-shell "$HOME/.tmux/statusbar.tmux" 2>/dev/null || true
+fi
+
 # Split right for shell (50%)
 tmux split-window -h -t "$SESSION:1" -c "$DIR"
 
