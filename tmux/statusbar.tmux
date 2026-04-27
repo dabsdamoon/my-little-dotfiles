@@ -81,13 +81,11 @@ main() {
 
 cpu-usage() {
   if [ `uname` == "Darwin" ]; then
-    # Sum of user + sys CPU usage
-    # https://stackoverflow.com/questions/30855440/how-to-get-cpu-utilization-in-in-terminal-mac
-    # On MacOS: top is CPU-greedy in the first run,
-    # so we stream in a loop (so that component-cpu can print line-by-line)
-    top -l 60 -s 2 | grep --line-buffered -E "^CPU" | while read line; do
-        echo "$line" | awk '{ printf "%.2f\n", $3 + $5 }'
-    done
+    # One-shot CPU usage (user + sys). The first sample on macOS reports usage
+    # since boot, so we take 2 samples 1s apart and keep the second.
+    # tmux re-invokes this on its status-interval, so we exit instead of streaming
+    # — streaming caused samplers to pile up across status refreshes.
+    top -l 2 -s 1 | awk '/^CPU/ { cpu = $3 + $5 } END { printf "%.2f\n", cpu }'
   else
     # https://unix.stackexchange.com/questions/69185/getting-cpu-usage-same-every-time/
     cat <(grep 'cpu ' /proc/stat) <(sleep 1 && grep 'cpu ' /proc/stat) | \
