@@ -146,6 +146,7 @@ configure_file_associations() {
   # duti is needed because macOS LaunchServices defaults are not reliably writable
   # with `defaults write`.
   local vscode_bundle_id="${VSCODE_BUNDLE_ID:-com.microsoft.VSCode}"
+  local vscode_app_path="${VSCODE_APP_PATH:-}"
 
   if ! command -v duti >/dev/null 2>&1; then
     if command -v brew >/dev/null 2>&1; then
@@ -156,19 +157,41 @@ configure_file_associations() {
     fi
   fi
 
-  if ! osascript -e "id of app \"Visual Studio Code\"" >/dev/null 2>&1; then
+  if [[ -z "$vscode_app_path" && -d "/Applications/Visual Studio Code.app" ]]; then
+    vscode_app_path="/Applications/Visual Studio Code.app"
+  elif [[ -z "$vscode_app_path" && -d "$HOME/Applications/Visual Studio Code.app" ]]; then
+    vscode_app_path="$HOME/Applications/Visual Studio Code.app"
+  elif [[ -z "$vscode_app_path" ]] && command -v mdfind >/dev/null 2>&1; then
+    vscode_app_path="$(mdfind "kMDItemCFBundleIdentifier == '$vscode_bundle_id'" | head -n 1)"
+  fi
+
+  if [[ -z "$vscode_app_path" || ! -d "$vscode_app_path" ]]; then
     echo "Visual Studio Code is not installed, or its bundle id is different."
-    echo "Install VS Code or set VSCODE_BUNDLE_ID before running this command."
+    echo "Install VS Code or set VSCODE_BUNDLE_ID/VSCODE_APP_PATH before running this command."
     return 1
   fi
 
+  local lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+  if [[ -x "$lsregister" ]]; then
+    "$lsregister" -f "$vscode_app_path" || echo "Warning: could not register $vscode_app_path with LaunchServices; continuing."
+  fi
+
+  _set_duti_handler() {
+    local content_type="$1"
+    if ! duti -s "$vscode_bundle_id" "$content_type" all; then
+      echo "Warning: could not set VS Code as handler for $content_type; skipped."
+    fi
+  }
+
   # Prefer VS Code for generic source/plain text UTIs.
-  duti -s "$vscode_bundle_id" public.source-code all
-  duti -s "$vscode_bundle_id" public.plain-text all
-  duti -s "$vscode_bundle_id" public.unix-executable all
-  duti -s "$vscode_bundle_id" public.shell-script all
+  _set_duti_handler public.source-code
+  _set_duti_handler public.plain-text
+  _set_duti_handler public.unix-executable
+  _set_duti_handler public.shell-script
 
   # Explicit extensions cover cases where Xcode owns a more specific UTI.
+  # duti can only set LaunchServices handlers for UTIs/extensions that macOS
+  # knows about; unsupported dynamic UTIs are skipped by _set_duti_handler.
   local extensions=(
     c cc cpp cxx h hh hpp hxx m mm
     swift metal
@@ -182,14 +205,14 @@ configure_file_associations() {
     xml xsl json jsonc json5 yaml yml toml ini cfg conf
     md markdown rst tex bib
     sql graphql gql proto
-    Dockerfile dockerfile Makefile make mk
-    CMakeLists cmake gradle
+    dockerfile make mk
+    cmake gradle
     vue svelte astro
   )
 
   local ext
   for ext in "${extensions[@]}"; do
-    duti -s "$vscode_bundle_id" ".$ext" all
+    _set_duti_handler ".$ext"
   done
 
   # Refresh Finder and LaunchServices consumers.
