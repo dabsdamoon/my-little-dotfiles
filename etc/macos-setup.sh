@@ -137,6 +137,65 @@ configure_skim() {
   defaults write -app Skim SKAutoReloadFileUpdate -boolean true
 }
 
+################################################################
+# File associations
+################################################################
+
+configure_file_associations() {
+  # Use Visual Studio Code instead of Xcode as the default editor for source files.
+  # duti is needed because macOS LaunchServices defaults are not reliably writable
+  # with `defaults write`.
+  local vscode_bundle_id="${VSCODE_BUNDLE_ID:-com.microsoft.VSCode}"
+
+  if ! command -v duti >/dev/null 2>&1; then
+    if command -v brew >/dev/null 2>&1; then
+      brew install duti
+    else
+      echo "duti is required. Install it with: brew install duti"
+      return 1
+    fi
+  fi
+
+  if ! osascript -e "id of app \"Visual Studio Code\"" >/dev/null 2>&1; then
+    echo "Visual Studio Code is not installed, or its bundle id is different."
+    echo "Install VS Code or set VSCODE_BUNDLE_ID before running this command."
+    return 1
+  fi
+
+  # Prefer VS Code for generic source/plain text UTIs.
+  duti -s "$vscode_bundle_id" public.source-code all
+  duti -s "$vscode_bundle_id" public.plain-text all
+  duti -s "$vscode_bundle_id" public.unix-executable all
+  duti -s "$vscode_bundle_id" public.shell-script all
+
+  # Explicit extensions cover cases where Xcode owns a more specific UTI.
+  local extensions=(
+    c cc cpp cxx h hh hpp hxx m mm
+    swift metal
+    java kt kts scala groovy
+    js jsx ts tsx mjs cjs
+    py pyw ipynb rb php go rs lua dart
+    sh bash zsh fish command
+    pl pm r R jl
+    cs fs fsx vb
+    html htm css scss sass less
+    xml xsl json jsonc json5 yaml yml toml ini cfg conf
+    md markdown rst tex bib
+    sql graphql gql proto
+    Dockerfile dockerfile Makefile make mk
+    CMakeLists cmake gradle
+    vue svelte astro
+  )
+
+  local ext
+  for ext in "${extensions[@]}"; do
+    duti -s "$vscode_bundle_id" ".$ext" all
+  done
+
+  # Refresh Finder and LaunchServices consumers.
+  killall Finder || ignore-error
+}
+
 
 ################################################################
 
@@ -148,6 +207,7 @@ all() {
   configure_finder
   configure_safari
   configure_skim
+  configure_file_associations
 }
 
 if [ -n "$1" ]; then
