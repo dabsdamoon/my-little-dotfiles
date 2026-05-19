@@ -90,6 +90,23 @@ tasks = {
     '~/.config/pycodestyle' : 'python/pycodestyle',
     '~/.ptpython/config.py' : dict(action="remove"),
     '~/.config/ptpython/config.py' : 'python/ptpython.config.py',
+
+    # Claude Code (symlink only if not already present)
+    '~/.claude/CLAUDE.md' : 'claude/CLAUDE.md',
+    '~/.claude/commands' : 'claude/commands',
+    # NOTE: ~/.claude/settings.json is managed by Claude Code at runtime.
+    # Do not symlink -- instead, copy defaults only if missing (see post_actions).
+
+    # AI agent auth & shared config
+    '~/.local/bin/ai-auth' : 'ai/auth/setup.sh',
+    '~/.local/bin/ai-auth-status' : 'ai/auth/check.sh',
+
+    # NOTE: ~/.openclaw/openclaw.json is managed by OpenClaw at runtime.
+    # Do not symlink -- instead, copy defaults only if missing (see post_actions).
+
+    # Bins (AI tools)
+    '~/.local/bin/claude-init' : 'bin/claude-init',
+    '~/.local/bin/tmux-ai-workspace' : 'bin/tmux-ai-workspace',
 }
 
 
@@ -102,6 +119,119 @@ os.chdir(__PATH__)
 
 
 post_actions = []
+post_actions += [  # Install terminfo for tmux-256color
+    '''#!/bin/bash
+    # Install terminfo entries (tmux-256color, wezterm, etc.)
+    bash "$HOME/.dotfiles/etc/terminfo.sh" 2>/dev/null || true
+''']
+
+post_actions += [  # Copy AI agent config defaults (only if not already present)
+    '''#!/bin/bash
+    # Copy Claude Code settings.json defaults (do not overwrite if exists)
+    mkdir -p ~/.claude
+    if [ ! -f ~/.claude/settings.json ]; then
+        cp "$HOME/.dotfiles/claude/settings.json" ~/.claude/settings.json
+        echo "Created ~/.claude/settings.json from defaults"
+    else
+        echo "~/.claude/settings.json already exists, skipped"
+    fi
+
+    # Copy OpenClaw config defaults (do not overwrite if exists)
+    mkdir -p ~/.openclaw
+    if [ ! -f ~/.openclaw/openclaw.json ]; then
+        cp "$HOME/.dotfiles/openclaw/openclaw.json" ~/.openclaw/openclaw.json
+        echo "Created ~/.openclaw/openclaw.json from defaults"
+    else
+        echo "~/.openclaw/openclaw.json already exists, skipped"
+    fi
+''']
+
+post_actions += [  # Install codex-cmonitor (requires Python 3.13+)
+    '''#!/bin/bash
+    # Install codex-cmonitor (Codex token usage monitor)
+    _version_check() {
+        [ "$2" = "$(echo -e "$1\n$2" | sort -V | head -n1)" ]
+    }
+
+    if command -v codex-cmonitor &>/dev/null; then
+        echo "codex-cmonitor: already installed"
+        exit 0
+    fi
+
+    # Find a Python 3.13+ interpreter
+    py=""
+    for candidate in python3.13 python3; do
+        if command -v "$candidate" &>/dev/null; then
+            ver="$("$candidate" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+            if _version_check "$ver" "3.13"; then
+                py="$candidate"
+                break
+            fi
+        fi
+    done
+
+    if [[ -z "$py" ]]; then
+        echo "Python 3.13+ not found. Installing..."
+        if [[ "$(uname)" == "Darwin" ]] && command -v brew &>/dev/null; then
+            brew install python@3.13 || true
+        elif [[ "$(uname)" == "Linux" ]] && command -v apt-get &>/dev/null; then
+            sudo add-apt-repository -y ppa:deadsnakes/ppa 2>/dev/null || true
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq python3.13 python3.13-venv 2>/dev/null || true
+        else
+            echo "WARNING: Please install Python 3.13+ manually, then re-run dotfiles update."
+            exit 0
+        fi
+        # Re-check
+        for candidate in python3.13 python3; do
+            if command -v "$candidate" &>/dev/null; then
+                ver="$("$candidate" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+                if _version_check "$ver" "3.13"; then
+                    py="$candidate"
+                    break
+                fi
+            fi
+        done
+    fi
+
+    if [[ -z "$py" ]]; then
+        echo "WARNING: codex-cmonitor requires Python 3.13+, skipping."
+        exit 0
+    fi
+
+    CMONITOR_REPO="codex-cmonitor @ git+https://github.com/dabsdamoon/codex-cmonitor.git"
+    echo "Installing codex-cmonitor using $py ($($py --version))..."
+    mkdir -p "$HOME/.local/bin"
+
+    # Prefer pipx > uv > pip (PEP 668 blocks pip --user on Homebrew Python)
+    if command -v pipx &>/dev/null; then
+        pipx install --python "$py" "$CMONITOR_REPO" && echo "codex-cmonitor: installed (pipx)" && exit 0
+    fi
+    if command -v uv &>/dev/null; then
+        uv tool install --python "$py" "$CMONITOR_REPO" && echo "codex-cmonitor: installed (uv)" && exit 0
+    fi
+
+    # Fallback: install pipx via brew, then use it
+    if command -v brew &>/dev/null; then
+        echo "Installing pipx via Homebrew..."
+        brew install pipx 2>/dev/null || true
+        pipx ensurepath 2>/dev/null || true
+        if command -v pipx &>/dev/null; then
+            pipx install --python "$py" "$CMONITOR_REPO" && echo "codex-cmonitor: installed (pipx)" && exit 0
+        fi
+    fi
+
+    # Last resort: pip with --break-system-packages
+    $py -m pip install --user --break-system-packages "$CMONITOR_REPO" 2>/dev/null || true
+    pip_bin="$($py -m site --user-base 2>/dev/null)/bin"
+    if [[ -f "$pip_bin/codex-cmonitor" ]]; then
+        ln -sf "$pip_bin/codex-cmonitor" "$HOME/.local/bin/codex-cmonitor"
+        echo "codex-cmonitor: installed (pip)"
+    else
+        echo "WARNING: codex-cmonitor install failed. Try: pipx install 'codex-cmonitor @ git+https://github.com/dabsdamoon/codex-cmonitor.git'"
+    fi
+''']
+
 post_actions += [  # Check symbolic link at $HOME
     '''#!/bin/bash
     # Check whether ~/.vim and ~/.zsh are well-configured

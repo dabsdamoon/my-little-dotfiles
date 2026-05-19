@@ -1,15 +1,12 @@
 #!/bin/bash
 
 # Usage:
-# curl -fsSL https://dotfiles.wook.kr/etc/install | bash
+# curl -fsSL https://raw.githubusercontent.com/dabsdamoon/my-little-dotfiles/main/etc/install | bash
 
 cat <<EOF
-   @wookayin's              ███████╗██╗██╗     ███████╗███████╗
-   ██████╗  █████╗ ████████╗██╔════╝██║██║     ██╔════╝██╔════╝
-   ██╔══██╗██╔══██╗╚══██╔══╝█████╗  ██║██║     █████╗  ███████╗
-   ██║  ██║██║  ██║   ██║   ██╔══╝  ██║██║     ██╔══╝  ╚════██║
-   ██████╔╝╚█████╔╝   ██║   ██║     ██║███████╗███████╗███████║
-   ╚═════╝  ╚═════╝   ╚═╝   ╚═╝     ╚═╝╚══════╝╚══════╝╚══════╝
+   my-little-dotfiles
+   AI-agent-optimized dotfiles (based on wookayin/dotfiles)
+   https://github.com/dabsdamoon/my-little-dotfiles
 EOF
 
 # Check minimal dependencies
@@ -33,16 +30,191 @@ if _version_check "$(git --version | cut -d' ' -f3)" "2.8"; then
     GIT_FLAGS="-j8"
 fi
 
-GIT_REPO="https://github.com/wookayin/dotfiles.git"
+GIT_REPO="https://github.com/dabsdamoon/my-little-dotfiles.git"
 
 set -x
 set -e
 
 # ============================================================================
 
+# Install a tool from a pre-built binary tarball into ~/.local/
+# Usage: _install_binary <name> <url> <binary_path_inside_tarball>
+_install_binary() {
+    local name="$1" url="$2" bin_path="$3"
+    echo "Installing $name from pre-built binary..."
+    mkdir -p "$HOME/.local/bin"
+    local tmpfile="$(mktemp)"
+    curl -fsSL -o "$tmpfile" "$url"
+    tar xzf "$tmpfile" -C /tmp
+    rm -rf "$HOME/.local/$name"
+    mv /tmp/${name}* "$HOME/.local/$name" 2>/dev/null || mv /tmp/${name}* "$HOME/.local/$name" 2>/dev/null
+    ln -sf "$HOME/.local/$name/$bin_path" "$HOME/.local/bin/$name"
+    rm -f "$tmpfile"
+    echo "$name: installed ($("$HOME/.local/bin/$name" --version 2>/dev/null | head -1))"
+}
+
+_install_neovim() {
+    local os="$(uname)" arch="$(uname -m)"
+    if [[ "$os" == "Darwin" && "$arch" == "arm64" ]]; then
+        _install_binary nvim "https://github.com/neovim/neovim/releases/latest/download/nvim-macos-arm64.tar.gz" "bin/nvim"
+    elif [[ "$os" == "Darwin" ]]; then
+        _install_binary nvim "https://github.com/neovim/neovim/releases/latest/download/nvim-macos-x86_64.tar.gz" "bin/nvim"
+    elif [[ "$os" == "Linux" ]]; then
+        _install_binary nvim "https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.tar.gz" "bin/nvim"
+    fi
+}
+
+_install_node() {
+    local os="$(uname)" arch="$(uname -m)"
+    # Use Node 22 LTS
+    local node_ver="v22.16.0"
+    if [[ "$os" == "Darwin" && "$arch" == "arm64" ]]; then
+        _install_binary node "https://nodejs.org/dist/${node_ver}/node-${node_ver}-darwin-arm64.tar.gz" "bin/node"
+    elif [[ "$os" == "Darwin" ]]; then
+        _install_binary node "https://nodejs.org/dist/${node_ver}/node-${node_ver}-darwin-x64.tar.gz" "bin/node"
+    elif [[ "$os" == "Linux" ]]; then
+        _install_binary node "https://nodejs.org/dist/${node_ver}/node-${node_ver}-linux-x64.tar.gz" "bin/node"
+    fi
+    # Symlink npm and npx too
+    if [[ -d "$HOME/.local/node" ]]; then
+        ln -sf "$HOME/.local/node/bin/npm" "$HOME/.local/bin/npm"
+        ln -sf "$HOME/.local/node/bin/npx" "$HOME/.local/bin/npx"
+    fi
+}
+
+# Install essential tools
+_install_essentials() {
+    mkdir -p "$HOME/.local/bin"
+    # Ensure common bin paths are in PATH (curl|bash may have minimal PATH)
+    export PATH="$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"
+
+    echo "Installing essential packages..."
+
+    # Neovim: always use pre-built binary (fast, no compilation)
+    if ! command -v nvim &>/dev/null; then
+        _install_neovim || true
+    else
+        echo "neovim: already installed ($(nvim --version | head -1))"
+    fi
+
+    # Node: always use pre-built binary (avoids brew compiling python as dependency)
+    if ! command -v node &>/dev/null; then
+        _install_node || true
+    else
+        echo "node: already installed ($(node --version))"
+    fi
+
+    # Tmux
+    if ! command -v tmux &>/dev/null; then
+        if [[ "$(uname)" == "Linux" ]]; then
+            # Linux: use AppImage (pre-built, no compilation)
+            echo "Installing tmux from AppImage..."
+            mkdir -p "$HOME/.local/bin"
+            local latest_url=$(curl -fsSL https://api.github.com/repos/nelsonenzo/tmux-appimage/releases/latest \
+                | grep "browser_download_url.*tmux.appimage" | head -1 | cut -d'"' -f4)
+            if [[ -n "$latest_url" ]]; then
+                curl -fsSL -o "$HOME/.local/bin/tmux" "$latest_url"
+                chmod +x "$HOME/.local/bin/tmux"
+                echo "tmux: installed ($("$HOME/.local/bin/tmux" -V))"
+            else
+                # Fallback to apt
+                if command -v apt-get &>/dev/null; then
+                    sudo apt-get update -qq
+                    sudo apt-get install -y -qq tmux 2>/dev/null || true
+                fi
+            fi
+        elif [[ "$(uname)" == "Darwin" ]]; then
+            if command -v brew &>/dev/null; then
+                echo "Installing tmux via Homebrew..."
+                brew install tmux
+            else
+                echo "tmux: Homebrew not found. Install manually: brew install tmux"
+            fi
+        fi
+    else
+        echo "tmux: already installed ($(tmux -V))"
+    fi
+
+    # Python 3.13+: required by codex-cmonitor
+    local py_ver
+    py_ver="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "0.0")"
+    if ! _version_check "$py_ver" "3.13"; then
+        echo "Python $py_ver found, but 3.13+ is required for codex-cmonitor."
+        if [[ "$(uname)" == "Darwin" ]]; then
+            if command -v brew &>/dev/null; then
+                echo "Installing python@3.13 via Homebrew..."
+                brew install python@3.13 || true
+            else
+                echo "WARNING: Install Homebrew (https://brew.sh) then run: brew install python@3.13"
+            fi
+        elif [[ "$(uname)" == "Linux" ]]; then
+            if command -v apt-get &>/dev/null; then
+                echo "Installing python3.13 via apt..."
+                sudo add-apt-repository -y ppa:deadsnakes/ppa 2>/dev/null || true
+                sudo apt-get update -qq
+                sudo apt-get install -y -qq python3.13 python3.13-venv 2>/dev/null || true
+            else
+                echo "WARNING: Please install Python 3.13+ manually."
+            fi
+        fi
+    fi
+
+    # Claude Code Usage Monitor (cmonitor)
+    if ! command -v cmonitor &>/dev/null && ! command -v claude-monitor &>/dev/null; then
+        echo "Installing claude-monitor (cmonitor)..."
+        if command -v pipx &>/dev/null; then
+            pipx install claude-monitor 2>/dev/null || true
+        elif command -v uv &>/dev/null; then
+            uv tool install claude-monitor 2>/dev/null || true
+        else
+            # Fallback: pip with --break-system-packages (PEP 668)
+            pip3 install --user --break-system-packages claude-monitor 2>/dev/null || true
+            local pip_bin="$(python3 -m site --user-base 2>/dev/null)/bin"
+            if [[ -f "$pip_bin/cmonitor" ]]; then
+                ln -sf "$pip_bin/cmonitor" "$HOME/.local/bin/cmonitor"
+                ln -sf "$pip_bin/claude-monitor" "$HOME/.local/bin/claude-monitor"
+            fi
+        fi
+    else
+        echo "cmonitor: already installed"
+    fi
+
+    # Codex Usage Monitor (codex-cmonitor) -- requires Python 3.13+
+    if ! command -v codex-cmonitor &>/dev/null; then
+        local py313="$(command -v python3.13 || command -v python3)"
+        local py313_ver
+        py313_ver="$($py313 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "0.0")"
+        if _version_check "$py313_ver" "3.13"; then
+            local cmonitor_repo="codex-cmonitor @ git+https://github.com/dabsdamoon/codex-cmonitor.git"
+            echo "Installing codex-cmonitor..."
+            if command -v pipx &>/dev/null; then
+                pipx install --python "$py313" "$cmonitor_repo" || true
+            elif command -v uv &>/dev/null; then
+                uv tool install --python "$py313" "$cmonitor_repo" || true
+            elif command -v brew &>/dev/null; then
+                brew install pipx 2>/dev/null || true
+                pipx ensurepath 2>/dev/null || true
+                pipx install --python "$py313" "$cmonitor_repo" || true
+            else
+                $py313 -m pip install --user --break-system-packages "$cmonitor_repo" 2>/dev/null || true
+                local pip_bin="$($py313 -m site --user-base 2>/dev/null)/bin"
+                if [[ -f "$pip_bin/codex-cmonitor" ]]; then
+                    ln -sf "$pip_bin/codex-cmonitor" "$HOME/.local/bin/codex-cmonitor"
+                fi
+            fi
+        else
+            echo "WARNING: codex-cmonitor requires Python 3.13+, skipping."
+        fi
+    else
+        echo "codex-cmonitor: already installed"
+    fi
+}
+
+_install_essentials
+
 cd ~
 
-git clone --recursive ${GIT_FLAGS} ${GIT_REPO} ~/.dotfiles
+git clone --recursive ${GIT_FLAGS} -b main ${GIT_REPO} ~/.dotfiles
 cd ~/.dotfiles && $PYTHON install.py
 
 echo "All Done!"

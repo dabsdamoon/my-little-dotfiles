@@ -1,0 +1,71 @@
+#!/bin/bash
+#
+# Uninstall my-little-dotfiles: remove all symlinks and the cloned repo.
+# Usage: bash ~/.dotfiles/etc/uninstall
+#        Or after removal: bash /path/to/my-little-dotfiles/etc/uninstall
+
+set -e
+
+echo "=== my-little-dotfiles uninstall ==="
+echo ""
+echo "This will remove:"
+echo "  - ~/.dotfiles (cloned repo)"
+echo "  - All symlinks created by install.py"
+echo "  - AI agent config symlinks"
+echo ""
+read -p "Continue? [y/N] " confirm
+if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+  echo "Aborted."
+  exit 0
+fi
+
+echo ""
+echo "Removing symlinks..."
+
+# Shells
+rm -f ~/.bashrc ~/.screenrc
+
+# Vim / Neovim
+rm -f ~/.vimrc
+rm -rf ~/.vim
+rm -f ~/.config/nvim
+
+# Git
+rm -f ~/.gitconfig ~/.gitignore
+
+# Zsh
+rm -f ~/.zshrc ~/.zshenv ~/.zprofile ~/.zlogin ~/.zlogout ~/.zpreztorc
+rm -rf ~/.zsh
+
+# Tmux
+rm -rf ~/.tmux
+rm -f ~/.tmux.conf
+
+# Python
+rm -f ~/.pythonrc.py ~/.pylintrc ~/.condarc
+rm -f ~/.config/pycodestyle ~/.config/ptpython/config.py
+
+# Terminal emulators
+rm -f ~/.config/kitty ~/.config/alacritty ~/.config/wezterm
+rm -f ~/.config/terminator
+
+# Other
+rm -f ~/.Xmodmap ~/.gtkrc-2.0
+rm -f ~/.config/pudb/pudb.cfg
+
+# Bins
+rm -f ~/.local/bin/dotfiles ~/.local/bin/fasd ~/.local/bin/fzf
+
+# AI agent configs
+rm -f ~/.claude/CLAUDE.md ~/.claude/commands ~/.claude/settings.json
+rm -f ~/.openclaw/openclaw.json
+rm -f ~/.local/bin/ai-auth ~/.local/bin/ai-auth-status
+rm -f ~/.local/bin/claude-init ~/.local/bin/tmux-ai-workspace
+
+# Remove cloned repo
+echo "Removing ~/.dotfiles..."
+rm -rf ~/.dotfiles
+
+echo ""
+echo "=== Uninstall complete ==="
+echo "Restart your shell (exec zsh) or open a new terminal."

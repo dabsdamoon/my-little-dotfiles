@@ -1,126 +1,145 @@
+# my-little-dotfiles
 
-# Dotfiles
+Personal dotfiles for macOS and Linux, optimized for AI-agent-assisted development.
 
-🏠 Personal dotfiles for \*NIX (macOS and Linux) systems.
+Based on [wookayin/dotfiles](https://github.com/wookayin/dotfiles) with added support for Claude Code, Codex, OpenClaw, and modern AI coding workflows.
 
-
-## Installation
-
-### 👉 One-liner (if you trust me):
+## One-Liner Installation
 
 ```bash
-curl -fsSL https://dotfiles.wook.kr/etc/install | bash
+curl -fsSL https://raw.githubusercontent.com/dabsdamoon/my-little-dotfiles/main/etc/install | bash
 ```
 
-<details><summary>
-💡 (Tip) You only need to remember <code>curl dotfiles.wook.kr</code> (Click to expand)
-</summary></p>
+This will:
+1. Install essential tools via Homebrew (macOS) or apt (Linux): **tmux**, **neovim**, **node**
+2. Clone the repo to `~/.dotfiles`
+3. Create symlinks for all configs
+4. Set up zsh plugins (Antidote, Powerlevel10k)
+5. Copy default AI agent configs (Claude Code, OpenClaw)
 
-* Every file is accessible through `dotfiles.wook.kr` (via `curl -L` or `wget`), e.g.,
-  * https://dotfiles.wook.kr/vimrc
-  * https://dotfiles.wook.kr/vimrc?raw=true
-  * https://dotfiles.wook.kr/bin/tb
-
-<p></details>
-
-<details><summary>
-🤔 Want to manually clone and install? (Click to expand)
-</summary><p>
+### Manual Installation
 
 ```bash
-$ git clone --recursive https://github.com/wookayin/dotfiles.git ~/.dotfiles
-$ cd ~/.dotfiles && python install.py
+git clone --recursive -b main https://github.com/dabsdamoon/my-little-dotfiles.git ~/.dotfiles
+cd ~/.dotfiles && python3 install.py
 ```
 
-<!--
-Note: The option `-j8` (`--jobs 8`) works with Git >= 2.8 (parallel submodule fetching).
-For older versions of Git, try without `-j` option.
--->
+## What's Included
 
-</p></details>
+### Shell (zsh)
+- **Prezto** framework + **Antidote** plugin manager + **Powerlevel10k** prompt
+- Vi-mode, fzf integration, autosuggestions, syntax highlighting
+- `ai-agents.zsh` -- aliases for Claude Code, Codex, OpenClaw, 1Password CLI, auth helpers
 
-<br>
+### Editor (Neovim)
+- **Lazy.nvim** plugin manager, **mason.nvim** for LSP
+- telescope, treesitter, nvim-cmp, conform.nvim
+- **claudecode.nvim** -- Claude Code integration (`<leader>C*`)
+- **avante.nvim** -- agentic editing with Claude as default (`<leader>a*`)
 
+### Terminal Multiplexer (tmux)
+- Prefix: `Ctrl-a`, vim-like pane navigation
+- AI agent status indicator in status bar (shows CC/CX/OC when active)
+- `tmux-ai-workspace` -- pre-built AI dev layout:
 
-The installation script will clone the repository into `~/.dotfiles` and create symbolic links (e.g., `~/.vimrc`) for you.
-If target files already exist (e.g. `~/.vim`, `~/.vimrc`), you will need to manually resolve the conflict (delete the old one or just ignore). See Troubleshooting below for details.
+```
+┌──────────────────┬──────────────────┐
+│                  │                  │
+│  AI Agent        │  Shell (zsh)     │
+│                  │                  │
+│                  ├──────────────────┤
+│                  │  Monitor         │
+│                  │  (agent aware)   │
+│                  │                  │
+└──────────────────┴──────────────────┘
+```
 
+### Monitoring
+- **[cmonitor](https://github.com/Maciek-roboblog/Claude-Code-Usage-Monitor)** -- real-time Claude Code token usage, burn rate, cost estimates, plan limit predictions. Auto-installed and runs in tmux-ai-workspace bottom-right pane.
+- **`codex-cmonitor`** -- local Codex session monitor for tmux panes, with responsive live layouts and recent trend display.
 
-## `$ dotfiles`
+### Git
+- **delta** pager, rebase-on-pull, rerere, diff3 conflict style
+- AI token patterns in global gitignore
 
-**To update dotfiles** (pull changes from upstream and run [`install.py`][install.py] again):
+### AI Agent Integration
+
+| Tool | Config Location | Auth |
+|------|----------------|------|
+| **Claude Code** | `~/.claude/CLAUDE.md`, `~/.claude/commands/` | OAuth (`claude login`) |
+| **Codex** | `~/.codex/` | OpenAI login / local Codex CLI auth |
+| **OpenClaw** | `~/.openclaw/openclaw.json` | OAuth (`openclaw onboard`) |
+| **1Password CLI** | On-demand via `ai-key` function | `op signin` |
+
+**Claude Code slash commands:** `/review`, `/test`, `/refactor`, `/debug-retro`
+
+**Shell commands:**
+- `ai-auth` -- authenticate all AI agents
+- `ai-auth-status` -- check auth health
+- `ai-status` -- show installed agents and gateway status
+- `claude-init` -- scaffold a project-specific CLAUDE.md
+- `tmux-ai-workspace [--agent claude|codex] [name] [dir]` -- launch AI dev layout
+
+### Codex tmux workspace
+
+Use Codex mode when you want the left pane to run the `codex` CLI and the bottom-right pane to run `codex-cmonitor`.
+
+Examples:
 
 ```bash
-$ dotfiles update
-$ dotfiles update --fast          # fast update mode: skip updating {vim,zsh} plugins
+tmux-ai-workspace --agent codex
+tmux-ai-workspace --agent codex codex-dev ~/work/project
 ```
 
-On Linux, you can [install some common softwares locally][linux-locals.sh] (into `$HOME/.local/bin`) *without sudo*:
+Notes:
+- `codex` must be installed and authenticated locally.
+- `codex-cmonitor` should be available on `PATH` for the monitor pane.
+- the Codex monitor is account-wide by default, so it aggregates usage across all active Codex sessions rather than showing only the current tmux pane.
+
+## Updating
 
 ```bash
-$ dotfiles install neovim         # -> ~/.local/bin/nvim
-$ dotfiles install ripgrep        # -> ~/.local/bin/rg
+dotfiles update                  # pull + reinstall
+dotfiles update --fast           # skip plugin updates
 ```
 
+## Structure
 
+```
+~/.dotfiles/
+├── zsh/                    # Shell config (Prezto, Antidote, Powerlevel10k)
+│   └── zsh.d/
+│       └── ai-agents.zsh  # AI agent aliases & functions
+├── nvim/                   # Neovim config (Lazy.nvim, LSP, AI plugins)
+├── tmux/                   # Tmux config + AI status bar
+├── git/                    # Git config (delta, gitignore with token patterns)
+├── claude/                 # Claude Code global config
+│   ├── CLAUDE.md           # Global instructions for all sessions
+│   ├── settings.json       # Permissions and hooks
+│   └── commands/           # Custom slash commands
+├── openclaw/               # OpenClaw config (ChatGPT primary, Gemini fallback)
+├── ai/                     # Shared AI agent configs
+│   ├── AGENTS.md           # Universal agent instructions
+│   ├── auth/               # OAuth setup and health check scripts
+│   └── templates/          # Project-type CLAUDE.md templates
+├── bin/                    # Custom utilities
+├── install.py              # Symlink installer
+└── tests/                  # Validation tests (symlinks, syntax, JSON)
+```
 
-## 🆘 Troubleshooting
+## Tests
 
-*Please read carefully warning messages during installation !!*
+```bash
+cd ~/.dotfiles && python3 -m pytest tests/ -v
+```
 
-* If something goes wrong, please run **[`$ dotfiles update`][dotfiles-update]** (or [install.py]) to make everything up-to-date.
-    * Please carefully READ the error/warning message printed by the installation script.
-    * If you have your own `~/.zshrc`, `~/.vimrc`, `~/.vim`, etc., that are NOT symbolic links,
-      they will not be overwritten by default.
-      In such cases you should delete these files *manually*.
+Validates: symlink sources exist, shell syntax correct, JSON configs valid.
 
-* Q: I see some weird icons like `⍰` in (neo)vim or in the [statusline](https://github.com/powerline/powerline#vim-statusline).
-  - A: Use [Nerd fonts](https://github.com/ryanoasis/nerd-fonts) v3. If you haven't upgrade to Nerd fonts [**v3.1.1** or higher](https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.1.1), upgrade to v3 due to the new (breaking) Material Design Icons codepoints.
-    - Note: `JetBrainsMono Nerd Font Mono` ~~`JetBrainsMono NFM`~~ (nerd-fonts [v3.1.0 is buggy](https://github.com/ryanoasis/nerd-fonts/issues/1434))
-  - Mac users can install via: `brew install --cask font-*-nerd-font`.
-    - (Minimal fonts only `brew install --cask font-jetbrains-mono-nerd-font`)
-  - To upgrade existing installations, try `brew reinstall --cask $(brew list | grep nerd-font)`.
+## Credits
 
-* If neovim + treesitter emits an error like `query: invalid node type`, run `:TSUpdate` (and wait for installation is done).
-  * See [nvim-treesitter#3092](https://github.com/nvim-treesitter/nvim-treesitter/issues/3092) for more details.
-
-* If neovim cannot run due to `version 'GLIBC_2.29' not found` errors (on Ubuntu 18.04 or earlier),
-  you should upgrade your Ubuntu distribution to 20.04+ in order to run nvim 0.8.x or higher.
-  If you use [appimage](https://github.com/neovim/neovim/releases/tag/stable) binary of neovim,
-  this will work in Ubuntu 18.04; install neovim through `dotfiles install neovim` or `NEOVIM_VERSION=0.9.4 dotfiles install neovim`.
-
-* If [**neovim**][neovim] emits any startup errors (e.g. `no module named neovim`):
-    * Use **latest neovim** (e.g., neovim 0.11.0).
-      To install/upgrade neovim on your system, you can run `dotfiles install neovim` (linux) or `brew install neovim` (mac).
-    * Try `:checkhealth`.
-    * Try `:Lazy update`: some errors from vim plugin could be easily solved by updating plugins to date.
-      You can do `:Lazy update` (in vim) or `$ dotfiles update` (in zsh).
-    * We require python3 version not less than 3.6. See https://endoflife.date/python
-    * Make sure that the [`pynvim`](https://pypi.python.org/pypi/pynvim/) pypi package is installed on *local* python 3,
-      i.e. the python3 on conda, virtualenv, etc.
-      This should have been automatically installed.
-      If it doesn't work, check `which python3`. Use the following vim command to tell which host python is used:
-          [`:echo g:python3_host_prog`](https://github.com/wookayin/dotfiles/blob/master/nvim/init.vim).
-      * If you are not sure, manually running `python3 -m pip install --user pynvim` might help.
-
-* Does vim color look weird (e.g. only black-and-white)?
-  * Check whether your terminal emulator supports [24-bit color](https://github.com/wookayin/dotfiles/pull/9). Use iTerm2, wezterm, or kitty; NOT built-in Terminal.
-  * Latest Mosh (1.4.0+) support 24-bit colors, so try upgrading mosh if you are using it.
-  * Try `:set notermguicolors` to temporarily disable 24-bit colors.
-* Does tmux look weird? Make sure that tmux version is [2.3](etc/ubuntu-setup.sh) or higher.
-    * Run `$ dotfiles install tmux` to install `tmux` into `$HOME/.local/bin`, if you do not have sudo.
-* If you are still lost, or you've found a bug, please feel free to contact me or raise an issue ---
-  I will happy to assist.
-
-
-[neovim]: https://github.com/neovim/neovim
-[dotfiles-update]: https://github.com/wookayin/dotfiles/blob/master/bin/dotfiles
-[linux-locals.sh]: https://github.com/wookayin/dotfiles/blob/master/etc/linux-locals.sh
-[install.py]: https://github.com/wookayin/dotfiles/blob/master/install.py
-
+- Based on [wookayin/dotfiles](https://github.com/wookayin/dotfiles) by Jongwook Choi
+- AI agent integration by [@dabsdamoon](https://github.com/dabsdamoon)
 
 ## License
 
 [The MIT License (MIT)](LICENSE)
-
-Copyright (c) 2012-2026 Jongwook Choi (@wookayin)

@@ -51,8 +51,21 @@ test() {
 
 install() {
   echo "Installing terminfo ..."
-  infocmp wezterm >/dev/null && echo -e "wezterm: ${CSI}32mOK${CSI}0m" || wezterm
+  infocmp tmux-256color >/dev/null 2>&1 && echo -e "tmux-256color: ${CSI}32mOK${CSI}0m" || tmux256color
+  infocmp wezterm >/dev/null 2>&1 && echo -e "wezterm: ${CSI}32mOK${CSI}0m" || wezterm
   echo ""
+}
+
+tmux256color() {
+  local tempfile=$(mktemp)
+  cat > "$tempfile" << 'TERMINFO'
+tmux-256color|tmux with 256 colors,
+  ritm=\E[23m, rmso=\E[27m, sitm=\E[3m, smso=\E[7m,
+  colors#0x100, pairs#0x7fff,
+  use=screen-256color,
+TERMINFO
+  tic -x -o ~/.terminfo "$tempfile" && rm "$tempfile"
+  infocmp tmux-256color > /dev/null 2>&1 && echo "tmux-256color: Installed."
 }
 
 # https://wezfurlong.org/wezterm/faq.html#how-do-i-enable-undercurl-curly-underlines

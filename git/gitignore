@@ -50,3 +50,18 @@ npm-debug.log
 
 # Log files
 events.out.tfevents.*
+
+# AI Agent OAuth tokens -- NEVER commit
+.claude/.credentials
+.claude/oauth-*
+.claude/session-*
+.openclaw/tokens/
+.openclaw/.session
+*.oauth-token
+*.refresh-token
+
+# Secrets / local env overrides
+.zshenv.local
+.env
+.env.local
+.env.*.local

@@ -1,0 +1,26 @@
+{
+  // OpenClaw configuration
+  // OAuth tokens are managed by `openclaw onboard` -- never stored here.
+
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "openai:gpt-4.1",
+        "fallbacks": ["google:gemini-2.5"]
+      }
+    }
+  },
+
+  "channels": {
+    "slack": {
+      "enabled": true,
+      "workspace": "CHANGEME",
+      "allowFrom": ["CHANGEME"]
+    }
+  },
+
+  "gateway": {
+    "port": 18789,
+    "bind": "127.0.0.1"
+  }
+}
