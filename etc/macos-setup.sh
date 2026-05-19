@@ -137,6 +137,88 @@ configure_skim() {
   defaults write -app Skim SKAutoReloadFileUpdate -boolean true
 }
 
+################################################################
+# File associations
+################################################################
+
+configure_file_associations() {
+  # Use Visual Studio Code instead of Xcode as the default editor for source files.
+  # duti is needed because macOS LaunchServices defaults are not reliably writable
+  # with `defaults write`.
+  local vscode_bundle_id="${VSCODE_BUNDLE_ID:-com.microsoft.VSCode}"
+  local vscode_app_path="${VSCODE_APP_PATH:-}"
+
+  if ! command -v duti >/dev/null 2>&1; then
+    if command -v brew >/dev/null 2>&1; then
+      brew install duti
+    else
+      echo "duti is required. Install it with: brew install duti"
+      return 1
+    fi
+  fi
+
+  if [[ -z "$vscode_app_path" && -d "/Applications/Visual Studio Code.app" ]]; then
+    vscode_app_path="/Applications/Visual Studio Code.app"
+  elif [[ -z "$vscode_app_path" && -d "$HOME/Applications/Visual Studio Code.app" ]]; then
+    vscode_app_path="$HOME/Applications/Visual Studio Code.app"
+  elif [[ -z "$vscode_app_path" ]] && command -v mdfind >/dev/null 2>&1; then
+    vscode_app_path="$(mdfind "kMDItemCFBundleIdentifier == '$vscode_bundle_id'" | head -n 1)"
+  fi
+
+  if [[ -z "$vscode_app_path" || ! -d "$vscode_app_path" ]]; then
+    echo "Visual Studio Code is not installed, or its bundle id is different."
+    echo "Install VS Code or set VSCODE_BUNDLE_ID/VSCODE_APP_PATH before running this command."
+    return 1
+  fi
+
+  local lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+  if [[ -x "$lsregister" ]]; then
+    "$lsregister" -f "$vscode_app_path" || echo "Warning: could not register $vscode_app_path with LaunchServices; continuing."
+  fi
+
+  _set_duti_handler() {
+    local content_type="$1"
+    if ! duti -s "$vscode_bundle_id" "$content_type" all; then
+      echo "Warning: could not set VS Code as handler for $content_type; skipped."
+    fi
+  }
+
+  # Prefer VS Code for generic source/plain text UTIs.
+  _set_duti_handler public.source-code
+  _set_duti_handler public.plain-text
+  _set_duti_handler public.unix-executable
+  _set_duti_handler public.shell-script
+
+  # Explicit extensions cover cases where Xcode owns a more specific UTI.
+  # duti can only set LaunchServices handlers for UTIs/extensions that macOS
+  # knows about; unsupported dynamic UTIs are skipped by _set_duti_handler.
+  local extensions=(
+    c cc cpp cxx h hh hpp hxx m mm
+    swift metal
+    java kt kts scala groovy
+    js jsx ts tsx mjs cjs
+    py pyw ipynb rb php go rs lua dart
+    sh bash zsh fish command
+    pl pm r R jl
+    cs fs fsx vb
+    html htm css scss sass less
+    xml xsl json jsonc json5 yaml yml toml ini cfg conf
+    md markdown rst tex bib
+    sql graphql gql proto
+    dockerfile make mk
+    cmake gradle
+    vue svelte astro
+  )
+
+  local ext
+  for ext in "${extensions[@]}"; do
+    _set_duti_handler ".$ext"
+  done
+
+  # Refresh Finder and LaunchServices consumers.
+  killall Finder || ignore-error
+}
+
 
 ################################################################
 
@@ -148,6 +230,7 @@ all() {
   configure_finder
   configure_safari
   configure_skim
+  configure_file_associations
 }
 
 if [ -n "$1" ]; then
