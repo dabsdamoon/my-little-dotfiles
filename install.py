@@ -94,6 +94,11 @@ tasks = {
     # Claude Code (symlink only if not already present)
     '~/.claude/CLAUDE.md' : 'claude/CLAUDE.md',
     '~/.claude/commands' : 'claude/commands',
+    '~/.claude/rules' : 'claude/rules',
+    '~/.claude/hooks' : 'claude/hooks',
+    '~/.claude/memory' : 'claude/memory',
+    '~/.claude/skills/coordinator' : 'claude/skills/coordinator',
+    '~/.claude/statusline-command.sh' : 'claude/statusline-command.sh',
     # NOTE: ~/.claude/settings.json is managed by Claude Code at runtime.
     # Do not symlink -- instead, copy defaults only if missing (see post_actions).
 
