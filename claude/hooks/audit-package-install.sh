@@ -52,8 +52,8 @@ if [ "$IS_INSTALL" = false ]; then
     exit 0
 fi
 
-# Block with an informative message
-cat <<EOF
+# Block with an informative message on stderr so Claude Code surfaces it
+cat >&2 <<EOF
 
 ===================================================================
   PACKAGE INSTALL INTERCEPTED ($PKG_MANAGER)
