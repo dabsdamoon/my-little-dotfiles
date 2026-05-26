@@ -12,6 +12,17 @@
 
    https://dotfiles.wook.kr/
 '''
+
+import sys
+if sys.platform == 'win32':
+    # The logo and logs use box-drawing/ANSI characters; reconfigure the
+    # console to UTF-8 so they don't crash a cp949/cp1252 Windows console.
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding='utf-8')
+        except (AttributeError, ValueError):
+            pass
+
 print(__doc__)  # print logo.
 
 
@@ -117,6 +128,25 @@ tasks = {
 
 import os
 import platform
+
+IS_WINDOWS = platform.system() == 'Windows'
+
+# On Windows, install.py manages only these cross-platform targets. The
+# shell / editor / tmux / X dotfiles target POSIX tools, and the bash
+# post-actions can't run on Windows, so both are skipped (see the symlink
+# loop and the post-action runner below). Add entries here to opt more
+# targets into the Windows install.
+WINDOWS_TARGETS = {
+    '~/.gitconfig',
+    '~/.gitignore',
+    '~/.claude/CLAUDE.md',
+    '~/.claude/commands',
+    '~/.claude/rules',
+    '~/.claude/hooks',
+    '~/.claude/memory',
+    '~/.claude/skills/coordinator',
+    '~/.claude/statusline-command.sh',
+}
 
 # Make sure the CWD is the root of dotfiles.
 __PATH__ = os.path.abspath(os.path.dirname(__file__))
@@ -424,7 +454,11 @@ import os
 import sys
 import subprocess
 
-from signal import signal, SIGPIPE, SIG_DFL
+from signal import signal, SIG_DFL
+try:
+    from signal import SIGPIPE
+except ImportError:  # Windows has no SIGPIPE
+    SIGPIPE = None
 from sys import stderr
 
 if sys.version_info[0] >= 3:  # python3
@@ -465,10 +499,16 @@ current_dir = os.path.abspath(os.path.dirname(__file__))
 os.chdir(current_dir)
 
 # check if git submodules are loaded properly
-stat = subprocess.check_output("git submodule status --recursive",
-                               shell=True, universal_newlines=True)
-submodule_issues = [(l.split()[1], l[0]) for l in stat.split('\n')  # noqa
-                    if len(l) and l[0] != ' ']
+if IS_WINDOWS:
+    # Windows targets (git + Claude config) don't depend on the vim / zsh /
+    # tmux submodules, so skip the submodule sync to keep a Windows install
+    # lean and avoid cloning POSIX-only plugins.
+    submodule_issues = []
+else:
+    stat = subprocess.check_output("git submodule status --recursive",
+                                   shell=True, universal_newlines=True)
+    submodule_issues = [(l.split()[1], l[0]) for l in stat.split('\n')  # noqa
+                        if len(l) and l[0] != ' ']
 
 if submodule_issues:
     stat_messages = {'+': 'needs update', '-': 'not initialized', 'U': 'conflict!'}
@@ -501,6 +541,10 @@ for target, item in sorted(tasks.items()):
     # normalize paths
     if isinstance(item, str):
         item = {'src': item}
+
+    # Windows: only manage the cross-platform allowlist defined above.
+    if IS_WINDOWS and target not in WINDOWS_TARGETS:
+        continue
 
     source = item.get('src', None)
     force = item.get('force', False)
@@ -561,28 +605,81 @@ for target, item in sorted(tasks.items()):
         if not os.path.isdir(mkdir_target):
             makedirs(mkdir_target)
             log(GREEN('Created directory : %s' % mkdir_target))
-        os.symlink(source, target)
+        try:
+            # target_is_directory is required for directory symlinks on
+            # Windows; it is ignored on POSIX.
+            os.symlink(source, target,
+                       target_is_directory=os.path.isdir(source))
+        except OSError as ex:
+            if IS_WINDOWS:
+                log("{:60s} : {}".format(
+                    BLUE(target), RED("symlink failed (%s)" % ex)))
+                log(YELLOW(
+                    "    Windows needs symlink permission. Enable Developer "
+                    "Mode\n    (Settings > Privacy & security > For "
+                    "developers), or run this\n    script from an elevated "
+                    "(Administrator) terminal, then retry."))
+                continue
+            raise
         log("{:60s} : {}".format(
             BLUE(target),
             GREEN("symlink created from '%s'" % source)
         ))
 
+def _seed_windows_defaults():
+    """Windows replacement for the bash 'copy defaults if missing' action.
+
+    Seeds ~/.claude/settings.json from the repo's claude/settings.json when
+    absent, dropping the POSIX-only ``hooks`` and ``statusLine`` keys (they
+    invoke workmux/bash and would error on every action on Windows).
+    """
+    import json
+    claude_dir = os.path.expanduser('~/.claude')
+    makedirs(claude_dir, exist_ok=True)
+    dst = os.path.join(claude_dir, 'settings.json')
+    if os.path.exists(dst):
+        log("{:60s} : {}".format(BLUE(dst), GRAY("already exists, skipped")))
+        return
+    src = os.path.join(current_dir, 'claude', 'settings.json')
+    try:
+        with open(src, encoding='utf-8') as f:
+            settings = json.load(f)
+    except (OSError, ValueError) as ex:
+        log(RED("Could not read %s : %s" % (src, ex)))
+        return
+    removed = [k for k in ('hooks', 'statusLine')
+               if settings.pop(k, None) is not None]
+    with open(dst, 'w', encoding='utf-8') as f:
+        json.dump(settings, f, indent=2)
+        f.write('\n')
+    note = (" (omitted %s for Windows)" % ", ".join(removed)) if removed else ""
+    log(GREEN("Created %s from defaults%s" % (dst, note)))
+
+
 errors = []
-for action in post_actions:
-    if not action:
-        continue
-
-    action_title = action.strip().split('\n')[0].strip()
-    if action_title == '#!/bin/bash':
-        action_title = action.strip().split('\n')[1].strip()
-
+if IS_WINDOWS:
+    # The post-actions are bash scripts (zsh/fzf/tmux/brew/apt) that don't
+    # apply on Windows, and subprocess preexec_fn isn't supported there.
     log("\n", cr=False)
-    log_boxed("Executing: " + action_title, color_fn=CYAN)
-    ret = subprocess.call(['bash', '-e', '-c', action],
-                          preexec_fn=lambda: signal(SIGPIPE, SIG_DFL))
+    log_boxed("Windows: seeding Claude defaults; skipping POSIX post-actions",
+              color_fn=CYAN)
+    _seed_windows_defaults()
+else:
+    for action in post_actions:
+        if not action:
+            continue
 
-    if ret:
-        errors.append(action_title)
+        action_title = action.strip().split('\n')[0].strip()
+        if action_title == '#!/bin/bash':
+            action_title = action.strip().split('\n')[1].strip()
+
+        log("\n", cr=False)
+        log_boxed("Executing: " + action_title, color_fn=CYAN)
+        ret = subprocess.call(['bash', '-e', '-c', action],
+                              preexec_fn=lambda: signal(SIGPIPE, SIG_DFL))
+
+        if ret:
+            errors.append(action_title)
 
 log("\n")
 if errors:
@@ -595,9 +692,14 @@ else:
     log_boxed("✔  You are all set! ",
               color_fn=GREEN, use_bold=True)
 
-log("- Please restart shell (e.g. " + CYAN("`exec zsh`") + ") if necessary.")
-log("- To install some packages locally (e.g. neovim, tmux), try " + CYAN("`dotfiles install <package>`"))
-log("- If you want to update dotfiles (or have any errors), try " + CYAN("`dotfiles update`"))
+if IS_WINDOWS:
+    log("- Restart Claude Code to pick up the new ~/.claude config.")
+    log("- settings.json is a copy (not a symlink); delete it and re-run to re-seed.")
+    log("- To manage more targets on Windows, extend " + CYAN("WINDOWS_TARGETS") + " in install.py.")
+else:
+    log("- Please restart shell (e.g. " + CYAN("`exec zsh`") + ") if necessary.")
+    log("- To install some packages locally (e.g. neovim, tmux), try " + CYAN("`dotfiles install <package>`"))
+    log("- If you want to update dotfiles (or have any errors), try " + CYAN("`dotfiles update`"))
 log("\n\n", cr=False)
 
 sys.exit(len(errors))
