@@ -3,11 +3,12 @@
 
 Usage:
   agent-sync audit [--json]   list drift from the baseline; exit 1 when there is any
-  agent-sync apply [--yes]    print the planned changes; with --yes, make them
+  agent-sync apply [--yes]    print the planned changes; with --yes, refresh marketplaces,
+                              update installed baseline plugins, then make the changes
 
 The baseline defaults to ~/.dotfiles/agents/baseline.json ($AGENT_BASELINE overrides).
-Anything agent-sync moves out of the way goes to
-~/.local/state/agent-sync/backup/<timestamp>/ instead of being deleted.
+Anything agent-sync moves out of the way, and a copy of each settings file before its
+first edit, goes to ~/.local/state/agent-sync/backup/<timestamp>/.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from pathlib import Path
 from typing import Callable
 
 MANAGED_CODEX_MARKETPLACES_SKIP = {"openai-bundled", "openai-primary-runtime"}
+LOCAL_CLAUDE_SOURCES = {"directory", "file"}  # a path on this machine; cannot go in a shared baseline
 MARKER = ".agent-sync.json"
 
 
@@ -69,6 +71,12 @@ class Machine:
         shutil.move(str(src), str(dest))
         return dest
 
+    def snapshot(self, path: Path, area: str) -> None:
+        dest = self.backup_root / area / path.name
+        if path.exists() and not dest.exists():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, dest)
+
 
 def entries(d: dict) -> dict:
     return {k: v for k, v in d.items() if not k.startswith("$")}
@@ -95,11 +103,16 @@ def skill_names(skills_dir: Path) -> set[str]:
     return {p.name for p in skills_dir.iterdir() if (p / "SKILL.md").exists()}
 
 
+def command_names(commands_dir: Path) -> set[str]:
+    return {p.stem for p in commands_dir.glob("*.md")} if commands_dir.is_dir() else set()
+
+
 # ---------------------------------------------------------------- Claude Code
 
 
-def set_claude_setting(settings_path: Path, key: str, name: str, value) -> Callable[[], None]:
+def set_claude_setting(m: Machine, settings_path: Path, key: str, name: str, value) -> Callable[[], None]:
     def go() -> None:
+        m.snapshot(settings_path, "claude")
         data = read_json(settings_path)
         data.setdefault(key, {})[name] = value
         write_json(settings_path, data)
@@ -127,24 +140,33 @@ def plan_claude(m: Machine, base: dict, plan: Plan) -> None:
         if current is not want:
             plan.actions.append(Action(
                 "claude-enable", pid, f"enabledPlugins: {current} -> {want}",
-                set_claude_setting(settings_path, "enabledPlugins", pid, want)))
+                set_claude_setting(m, settings_path, "enabledPlugins", pid, want)))
 
     for name, value in entries(base.get("skillOverrides", {})).items():
         current = settings.get("skillOverrides", {}).get(name)
         if current != value:
             plan.actions.append(Action(
                 "claude-skill-override", name, f"skillOverrides: {current} -> {value}",
-                set_claude_setting(settings_path, "skillOverrides", name, value)))
+                set_claude_setting(m, settings_path, "skillOverrides", name, value)))
 
     plugin_skills: set[str] = set()
+    plugin_commands: set[str] = set()
     for pid, want in wanted.items():
         for record in installed.get(pid, []) if want else []:
             plugin_skills |= skill_names(Path(record["installPath"]) / "skills")
+            plugin_commands |= command_names(Path(record["installPath"]) / "commands")
     external = set(base.get("externalSkills", []))
     plan_duplicates(m, m.claude_dir / "skills", plugin_skills - external, "claude-skills", plan)
+    commands = m.claude_dir / "commands"
+    for entry in sorted(commands.glob("*.md")) if commands.is_dir() else []:
+        if entry.is_symlink() and entry.stem in plugin_skills | plugin_commands:
+            plan.actions.append(Action("claude-commands-duplicate", entry.name,
+                                       "symlink duplicates a plugin skill or command; unlink",
+                                       lambda e=entry: e.unlink()))
 
     for pid, records in installed.items():
-        if pid not in wanted and settings.get("enabledPlugins", {}).get(pid):
+        source = known.get(pid.partition("@")[2], {}).get("source", {}).get("source")
+        if pid not in wanted and settings.get("enabledPlugins", {}).get(pid) and source not in LOCAL_CLAUDE_SOURCES:
             plan.notes.append(f"Claude plugin {pid} is enabled here but not in the baseline")
 
 
@@ -169,8 +191,9 @@ def set_codex_plugin_enabled(text: str, pid: str, enabled: bool) -> str:
     return "\n".join(lines) + "\n"
 
 
-def codex_enable(config_path: Path, pid: str, enabled: bool) -> Callable[[], None]:
+def codex_enable(m: Machine, config_path: Path, pid: str, enabled: bool) -> Callable[[], None]:
     def go() -> None:
+        m.snapshot(config_path, "codex")
         text = config_path.read_text() if config_path.exists() else ""
         config_path.write_text(set_codex_plugin_enabled(text, pid, enabled))
     return go
@@ -237,7 +260,7 @@ def plan_codex(m: Machine, base: dict, plan: Plan) -> None:
             plan.actions.append(Action("codex-install", pid, " ".join(cmd), run_cli(cmd) if has_cli else None))
         current = configured.get(pid, {}).get("enabled")
         if current is not want:
-            plan.actions.append(Action("codex-enable", pid, f"enabled: {current} -> {want}", codex_enable(config_path, pid, want)))
+            plan.actions.append(Action("codex-enable", pid, f"enabled: {current} -> {want}", codex_enable(m, config_path, pid, want)))
 
     pinned = entries(base.get("skills", {}))
     for name, spec in pinned.items():
@@ -267,7 +290,8 @@ def plan_codex(m: Machine, base: dict, plan: Plan) -> None:
         plan.notes.append(f"~/.agents/skills/{name} is not in the baseline")
     for pid, entry in configured.items():
         marketplace = pid.partition("@")[2]
-        if pid not in wanted and entry.get("enabled") and marketplace not in MANAGED_CODEX_MARKETPLACES_SKIP:
+        local = config.get("marketplaces", {}).get(marketplace, {}).get("source_type") == "local"
+        if pid not in wanted and entry.get("enabled") and marketplace not in MANAGED_CODEX_MARKETPLACES_SKIP and not local:
             plan.notes.append(f"Codex plugin {pid} is enabled here but not in the baseline")
 
 
@@ -290,9 +314,10 @@ def git(project: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["git", "-C", str(project), *args], capture_output=True, text=True)
 
 
-def enable_local_plugins(project: Path, plugins: list[str]) -> Callable[[], None]:
+def enable_local_plugins(m: Machine, project: Path, plugins: list[str]) -> Callable[[], None]:
     def go() -> None:
         path = project / ".claude" / "settings.local.json"
+        m.snapshot(path, f"projects/{project.name}")
         data = read_json(path)
         for pid in plugins:
             data.setdefault("enabledPlugins", {})[pid] = True
@@ -324,10 +349,27 @@ def plan_projects(m: Machine, base: dict, plan: Plan) -> None:
                 if tracked:
                     plan.actions.append(Action("project-rule", project.name, detail + " (file is tracked by git; edit by hand)"))
                 else:
-                    plan.actions.append(Action("project-rule", project.name, detail, enable_local_plugins(project, missing)))
+                    plan.actions.append(Action("project-rule", project.name, detail, enable_local_plugins(m, project, missing)))
 
 
 # ------------------------------------------------------------------------- CLI
+
+
+def refresh_commands(m: Machine, base: dict) -> list[list[str]]:
+    claude, codex = base.get("claude", {}), base.get("codex", {})
+    known = read_json(m.claude_dir / "plugins" / "known_marketplaces.json")
+    installed = read_json(m.claude_dir / "plugins" / "installed_plugins.json").get("plugins", {})
+    plugins = [pid for pid in entries(claude.get("plugins", {})) if pid in installed]
+    marketplaces = {name for name in entries(claude.get("marketplaces", {})) if name in known}
+    marketplaces |= {pid.partition("@")[2] for pid in plugins}
+    cmds = [["claude", "plugin", "marketplace", "update", name] for name in sorted(marketplaces)]
+    cmds += [["claude", "plugin", "update", pid] for pid in plugins]
+    config_path = m.codex_dir / "config.toml"
+    configured = tomllib.loads(config_path.read_text()).get("marketplaces", {}) if config_path.exists() else {}
+    # Codex re-syncs installed plugins from the refreshed snapshot; it has no per-plugin update command.
+    cmds += [["codex", "plugin", "marketplace", "upgrade", name]
+             for name in entries(codex.get("marketplaces", {})) if name in configured]
+    return cmds
 
 
 def build_plan(m: Machine, base: dict) -> Plan:
@@ -362,6 +404,17 @@ def main(argv: list[str] | None = None) -> int:
     base = json.loads(args.baseline.read_text())
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     m = Machine(home=Path.home(), backup_root=Path.home() / ".local/state/agent-sync/backup" / stamp)
+    failed = 0
+    if args.command == "apply" and args.yes:
+        # A stale marketplace copy makes installs of newly added plugins fail.
+        for cmd in refresh_commands(m, base):
+            if shutil.which(cmd[0]) is None:
+                continue
+            try:
+                run_cli(cmd)()
+            except Exception as exc:  # report every failure, keep going with the rest
+                failed += 1
+                print(f"FAILED {' '.join(cmd)}: {exc}", file=sys.stderr)
     plan = build_plan(m, base)
 
     if args.command == "audit":
@@ -375,10 +428,9 @@ def main(argv: list[str] | None = None) -> int:
 
     print_plan(plan)
     if not args.yes:
-        if plan.actions:
-            print("\nDry run. Re-run with --yes to apply.")
+        print("\nDry run. --yes first refreshes marketplaces and updates installed baseline plugins,"
+              " then applies the plan as recomputed after the refresh.")
         return 0
-    failed = 0
     for a in plan.actions:
         if a.run is None:
             continue

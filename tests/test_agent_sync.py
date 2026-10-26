@@ -136,3 +136,101 @@ def test_project_rule_writes_ignored_local_settings_and_leaves_tracked_files_alo
     assert json.loads((fresh / ".claude" / "settings.local.json").read_text()) == {"enabledPlugins": {"v@m": True}}
     assert subprocess.run(["git", "-C", str(fresh), "check-ignore", "-q", ".claude/settings.local.json"]).returncode == 0
     assert json.loads((tracked / ".claude" / "settings.local.json").read_text()) == {}
+
+
+def installed_claude(home: Path, plugins: dict[str, Path], enabled: dict[str, bool]) -> None:
+    (home / ".claude" / "plugins").mkdir(parents=True, exist_ok=True)
+    (home / ".claude" / "plugins" / "installed_plugins.json").write_text(json.dumps(
+        {"plugins": {pid: [{"installPath": str(path)}] for pid, path in plugins.items()}}))
+    (home / ".claude" / "settings.json").write_text(json.dumps({"enabledPlugins": enabled}))
+
+
+def test_settings_files_are_copied_to_backup_before_their_first_edit(tmp_path):
+    installed_claude(tmp_path, {"p@m": tmp_path / "cache" / "p"}, {"p@m": True})
+    original = (tmp_path / ".claude" / "settings.json").read_text()
+    (tmp_path / ".codex").mkdir()
+    (tmp_path / ".codex" / "config.toml").write_text('model = "x"\n')
+
+    plan = agent_sync.Plan()
+    agent_sync.plan_claude(machine(tmp_path), {"plugins": {"p@m": False}, "skillOverrides": {"review": "off"}}, plan)
+    agent_sync.plan_codex(machine(tmp_path), {"plugins": {"c@m": False}}, plan)
+    run_all(plan)
+
+    assert (tmp_path / "backup" / "claude" / "settings.json").read_text() == original
+    assert (tmp_path / "backup" / "codex" / "config.toml").read_text() == 'model = "x"\n'
+
+
+def test_project_rule_backs_up_existing_local_settings(tmp_path):
+    project = tmp_path / "projects" / "app"
+    (project / ".claude").mkdir(parents=True)
+    (project / "vercel.json").write_text("{}")
+    original = json.dumps({"permissions": {"allow": ["Bash(ls:*)"]}})
+    (project / ".claude" / "settings.local.json").write_text(original)
+
+    base = {"roots": ["~/projects"],
+            "rules": [{"name": "vercel", "ifAnyExists": ["vercel.json"], "claudeLocalPlugins": ["v@m"]}]}
+    plan = agent_sync.Plan()
+    agent_sync.plan_projects(machine(tmp_path), base, plan)
+    run_all(plan)
+
+    assert (tmp_path / "backup" / "projects" / "app" / "settings.local.json").read_text() == original
+
+
+def test_plugins_from_local_marketplaces_are_not_reported(tmp_path):
+    installed_claude(tmp_path, {"a@mine": tmp_path / "a", "b@shared": tmp_path / "b"}, {"a@mine": True, "b@shared": True})
+    (tmp_path / ".claude" / "plugins" / "known_marketplaces.json").write_text(json.dumps(
+        {"mine": {"source": {"source": "directory", "path": "/x"}},
+         "shared": {"source": {"source": "github", "repo": "o/r"}}}))
+    (tmp_path / ".codex").mkdir()
+    (tmp_path / ".codex" / "config.toml").write_text(
+        '[plugins."a@mine"]\nenabled = true\n\n[plugins."b@shared"]\nenabled = true\n\n'
+        '[marketplaces.mine]\nsource_type = "local"\nsource = "/x"\n\n'
+        '[marketplaces.shared]\nsource_type = "git"\nsource = "https://example.invalid/r.git"\n')
+
+    plan = agent_sync.Plan()
+    agent_sync.plan_claude(machine(tmp_path), {}, plan)
+    agent_sync.plan_codex(machine(tmp_path), {}, plan)
+
+    assert plan.notes == ["Claude plugin b@shared is enabled here but not in the baseline",
+                          "Codex plugin b@shared is enabled here but not in the baseline"]
+
+
+def test_command_symlinks_that_duplicate_an_enabled_plugin_are_unlinked(tmp_path):
+    plugin = tmp_path / "cache" / "wiki"
+    make_skill(plugin / "skills" / "make-raw")
+    (plugin / "commands").mkdir()
+    (plugin / "commands" / "wikify-raw.md").write_text("Use the wikify-raw skill.\n")
+    installed_claude(tmp_path, {"wiki@m": plugin}, {"wiki@m": True})
+    commands = tmp_path / ".claude" / "commands"
+    commands.mkdir()
+    (commands / "make-raw.md").symlink_to(plugin / "skills" / "make-raw" / "SKILL.md")
+    (commands / "wikify-raw.md").symlink_to(plugin / "commands" / "wikify-raw.md")
+    (commands / "review.md").write_text("A command the user wrote.\n")
+
+    plan = agent_sync.Plan()
+    agent_sync.plan_claude(machine(tmp_path), {"plugins": {"wiki@m": True}}, plan)
+    assert [(a.kind, a.target) for a in plan.actions] == [
+        ("claude-commands-duplicate", "make-raw.md"), ("claude-commands-duplicate", "wikify-raw.md")]
+    run_all(plan)
+
+    assert [p.name for p in commands.iterdir()] == ["review.md"]
+    assert (plugin / "commands" / "wikify-raw.md").exists()
+
+
+def test_refresh_covers_registered_marketplaces_and_installed_baseline_plugins(tmp_path):
+    installed_claude(tmp_path, {"p@m": tmp_path / "p", "off@official": tmp_path / "off", "extra@m": tmp_path / "e"},
+                     {"p@m": True})
+    (tmp_path / ".claude" / "plugins" / "known_marketplaces.json").write_text(json.dumps({"m": {}, "official": {}}))
+    (tmp_path / ".codex").mkdir()
+    (tmp_path / ".codex" / "config.toml").write_text('[marketplaces.m]\nsource_type = "git"\nsource = "https://x/r.git"\n')
+    base = {"claude": {"marketplaces": {"m": "o/r", "new": "o/new"},
+                       "plugins": {"p@m": True, "off@official": False, "missing@m": True}},
+            "codex": {"marketplaces": {"m": "https://x/r.git", "new": "https://x/new.git"}}}
+
+    assert agent_sync.refresh_commands(machine(tmp_path), base) == [
+        ["claude", "plugin", "marketplace", "update", "m"],
+        ["claude", "plugin", "marketplace", "update", "official"],
+        ["claude", "plugin", "update", "p@m"],
+        ["claude", "plugin", "update", "off@official"],
+        ["codex", "plugin", "marketplace", "upgrade", "m"],
+    ]
