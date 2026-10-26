@@ -1,0 +1,128 @@
+{
+  "$comment": "Which skills and plugins Claude Code and Codex load on every machine. Apply with `agent-sync apply`; check drift with `agent-sync audit`. Edit this file (or ask the agent-setup-sync skill to) instead of changing one machine by hand.",
+  "claude": {
+    "marketplaces": {
+      "my-little-skills": "dabsdamoon/my-little-skills"
+    },
+    "plugins": {
+      "superpowers@claude-plugins-official": true,
+      "frontend-design@claude-plugins-official": true,
+      "playwright@claude-plugins-official": true,
+      "ralph-loop@claude-plugins-official": true,
+      "skill-creator@claude-plugins-official": true,
+      "developer-workflow-skills@my-little-skills": true,
+      "writing-skills@my-little-skills": true,
+      "research-workflow-skills@my-little-skills": true,
+      "character-production-skills@my-little-skills": true,
+      "config-skills@my-little-skills": true,
+      "llm-wiki-skills@my-little-skills": true,
+      "vercel@claude-plugins-official": false,
+      "code-review@claude-plugins-official": false,
+      "code-simplifier@claude-plugins-official": false,
+      "pr-review-toolkit@claude-plugins-official": false
+    },
+    "skillOverrides": {
+      "$comment": "gstack (git clone into ~/.claude/skills/gstack, its own installer). Kept installed for make-pdf; the rest collides with superpowers and the PR skills.",
+      "autoplan": "off",
+      "benchmark": "off",
+      "benchmark-models": "off",
+      "browse": "off",
+      "canary": "off",
+      "careful": "off",
+      "codex": "off",
+      "context-restore": "off",
+      "context-save": "off",
+      "cso": "off",
+      "design-consultation": "off",
+      "design-html": "off",
+      "design-review": "off",
+      "design-shotgun": "off",
+      "devex-review": "off",
+      "document-release": "off",
+      "freeze": "off",
+      "gstack": "off",
+      "gstack-upgrade": "off",
+      "guard": "off",
+      "health": "off",
+      "investigate": "off",
+      "land-and-deploy": "off",
+      "landing-report": "off",
+      "learn": "off",
+      "office-hours": "off",
+      "open-gstack-browser": "off",
+      "pair-agent": "off",
+      "plan-ceo-review": "off",
+      "plan-design-review": "off",
+      "plan-devex-review": "off",
+      "plan-eng-review": "off",
+      "plan-tune": "off",
+      "qa": "off",
+      "qa-only": "off",
+      "retro": "off",
+      "review": "off",
+      "setup-browser-cookies": "off",
+      "setup-deploy": "off",
+      "setup-gbrain": "off",
+      "ship": "off",
+      "unfreeze": "off"
+    },
+    "externalSkills": ["gstack", "make-pdf", "coordinator", "merge", "open-pr", "rebase", "workmux", "worktree", "synced"]
+  },
+  "codex": {
+    "marketplaces": {
+      "my-little-skills": "https://github.com/dabsdamoon/my-little-skills.git"
+    },
+    "plugins": {
+      "superpowers@openai-curated-remote": true,
+      "github@openai-curated": true,
+      "google-drive@openai-curated": true,
+      "notion@openai-curated": true,
+      "analysis-skills@my-little-skills": true,
+      "config-skills@my-little-skills": true,
+      "developer-workflow-skills@my-little-skills": true,
+      "houmy-skills@my-little-skills": true,
+      "llm-wiki-skills@my-little-skills": true,
+      "writing-skills@my-little-skills": true,
+      "fde-estimation-skills@my-little-skills": true,
+      "research-workflow-skills@my-little-skills": true,
+      "design-skills@my-little-skills": true,
+      "document-skills@my-little-skills": true,
+      "resume-skills@my-little-skills": true,
+      "character-production-skills@my-little-skills": true
+    },
+    "skills": {
+      "$comment": "Third-party skills that are not published as plugins, pinned to a commit and installed into ~/.agents/skills.",
+      "2d-character-rig-animation": {
+        "repo": "calesthio/generative-media-skills",
+        "ref": "8c85352d5d75d4dcbe58480bd138e37b9742bab1",
+        "path": "skills/production/creative-direction/2d-character-rig-animation"
+      },
+      "character-design-continuity": {
+        "repo": "calesthio/generative-media-skills",
+        "ref": "8c85352d5d75d4dcbe58480bd138e37b9742bab1",
+        "path": "skills/production/creative-direction/character-design-continuity"
+      },
+      "supabase-postgres-best-practices": {
+        "repo": "supabase/agent-skills",
+        "ref": "544bfc56c89afe2b87b20017a59b2c6e9502a1fb",
+        "path": "skills/supabase-postgres-best-practices"
+      },
+      "find-skills": {
+        "repo": "vercel-labs/skills",
+        "ref": "a80e4c9d12d607631249d4d7d059f835d4b2f13a",
+        "path": "skills/find-skills"
+      }
+    },
+    "externalSkills": ["orca-cli", "orchestration"]
+  },
+  "projects": {
+    "roots": ["~/projects"],
+    "rules": [
+      {
+        "name": "vercel",
+        "ifAnyExists": ["vercel.json", ".vercel"],
+        "claudeLocalPlugins": ["vercel@claude-plugins-official"]
+      }
+    ]
+  }
+}

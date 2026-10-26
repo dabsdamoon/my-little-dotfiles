@@ -122,6 +122,7 @@ tasks = {
 
     # Bins (AI tools)
     '~/.local/bin/claude-init' : 'bin/claude-init',
+    '~/.local/bin/agent-sync' : 'bin/agent-sync',
     '~/.local/bin/tmux-ai-workspace' : 'bin/tmux-ai-workspace',
 }
 
@@ -169,6 +170,12 @@ post_actions += [  # Copy AI agent config defaults (only if not already present)
         echo "Created ~/.claude/settings.json from defaults"
     else
         echo "~/.claude/settings.json already exists, skipped"
+    fi
+
+    # Plugins, skill overrides, and Codex skills come from agents/baseline.json.
+    # Show the drift; applying installs plugins over the network, so it is opt-in.
+    if [ -x "$HOME/.local/bin/agent-sync" ] && command -v python3 >/dev/null; then
+        "$HOME/.local/bin/agent-sync" audit || echo "Run 'agent-sync apply --yes' to match agents/baseline.json"
     fi
 
     # Copy OpenClaw config defaults (do not overwrite if exists)

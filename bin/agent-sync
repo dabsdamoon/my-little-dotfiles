@@ -1,0 +1,397 @@
+#!/usr/bin/env python3
+"""Make this machine's Claude Code and Codex skills match a baseline file.
+
+Usage:
+  agent-sync audit [--json]   list drift from the baseline; exit 1 when there is any
+  agent-sync apply [--yes]    print the planned changes; with --yes, make them
+
+The baseline defaults to ~/.dotfiles/agents/baseline.json ($AGENT_BASELINE overrides).
+Anything agent-sync moves out of the way goes to
+~/.local/state/agent-sync/backup/<timestamp>/ instead of being deleted.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+import tomllib
+import urllib.request
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Callable
+
+MANAGED_CODEX_MARKETPLACES_SKIP = {"openai-bundled", "openai-primary-runtime"}
+MARKER = ".agent-sync.json"
+
+
+@dataclass
+class Action:
+    kind: str
+    target: str
+    detail: str
+    run: Callable[[], None] | None = None  # None: needs a human, reported but not executed
+
+
+@dataclass
+class Plan:
+    actions: list[Action] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+
+@dataclass
+class Machine:
+    home: Path
+    backup_root: Path
+
+    @property
+    def claude_dir(self) -> Path:
+        return self.home / ".claude"
+
+    @property
+    def codex_dir(self) -> Path:
+        return self.home / ".codex"
+
+    @property
+    def agents_skills(self) -> Path:
+        return self.home / ".agents" / "skills"
+
+    def backup(self, src: Path, area: str) -> Path:
+        dest = self.backup_root / area / src.name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(src), str(dest))
+        return dest
+
+
+def entries(d: dict) -> dict:
+    return {k: v for k, v in d.items() if not k.startswith("$")}
+
+
+def read_json(path: Path) -> dict:
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
+def write_json(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+
+
+def run_cli(cmd: list[str]) -> Callable[[], None]:
+    def go() -> None:
+        subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL)
+    return go
+
+
+def skill_names(skills_dir: Path) -> set[str]:
+    if not skills_dir.is_dir():
+        return set()
+    return {p.name for p in skills_dir.iterdir() if (p / "SKILL.md").exists()}
+
+
+# ---------------------------------------------------------------- Claude Code
+
+
+def set_claude_setting(settings_path: Path, key: str, name: str, value) -> Callable[[], None]:
+    def go() -> None:
+        data = read_json(settings_path)
+        data.setdefault(key, {})[name] = value
+        write_json(settings_path, data)
+    return go
+
+
+def plan_claude(m: Machine, base: dict, plan: Plan) -> None:
+    settings_path = m.claude_dir / "settings.json"
+    settings = read_json(settings_path)
+    known = read_json(m.claude_dir / "plugins" / "known_marketplaces.json")
+    installed = read_json(m.claude_dir / "plugins" / "installed_plugins.json").get("plugins", {})
+    has_cli = shutil.which("claude") is not None
+
+    for name, repo in entries(base.get("marketplaces", {})).items():
+        if name not in known:
+            cmd = ["claude", "plugin", "marketplace", "add", repo]
+            plan.actions.append(Action("claude-marketplace", name, " ".join(cmd), run_cli(cmd) if has_cli else None))
+
+    wanted = entries(base.get("plugins", {}))
+    for pid, want in wanted.items():
+        if pid not in installed:
+            cmd = ["claude", "plugin", "install", pid]
+            plan.actions.append(Action("claude-install", pid, " ".join(cmd), run_cli(cmd) if has_cli else None))
+        current = settings.get("enabledPlugins", {}).get(pid)
+        if current is not want:
+            plan.actions.append(Action(
+                "claude-enable", pid, f"enabledPlugins: {current} -> {want}",
+                set_claude_setting(settings_path, "enabledPlugins", pid, want)))
+
+    for name, value in entries(base.get("skillOverrides", {})).items():
+        current = settings.get("skillOverrides", {}).get(name)
+        if current != value:
+            plan.actions.append(Action(
+                "claude-skill-override", name, f"skillOverrides: {current} -> {value}",
+                set_claude_setting(settings_path, "skillOverrides", name, value)))
+
+    plugin_skills: set[str] = set()
+    for pid, want in wanted.items():
+        for record in installed.get(pid, []) if want else []:
+            plugin_skills |= skill_names(Path(record["installPath"]) / "skills")
+    external = set(base.get("externalSkills", []))
+    plan_duplicates(m, m.claude_dir / "skills", plugin_skills - external, "claude-skills", plan)
+
+    for pid, records in installed.items():
+        if pid not in wanted and settings.get("enabledPlugins", {}).get(pid):
+            plan.notes.append(f"Claude plugin {pid} is enabled here but not in the baseline")
+
+
+# ---------------------------------------------------------------------- Codex
+
+
+def set_codex_plugin_enabled(text: str, pid: str, enabled: bool) -> str:
+    header = f'[plugins."{pid}"]'
+    value = f"enabled = {'true' if enabled else 'false'}"
+    lines = text.splitlines()
+    if header not in (line.strip() for line in lines):
+        sep = "" if text.endswith("\n\n") or not text else ("\n" if text.endswith("\n") else "\n\n")
+        return f"{text}{sep}{header}\n{value}\n"
+    start = next(i for i, line in enumerate(lines) if line.strip() == header)
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].lstrip().startswith("[")), len(lines))
+    for i in range(start + 1, end):
+        if re.match(r"\s*enabled\s*=", lines[i]):
+            lines[i] = value
+            break
+    else:
+        lines.insert(start + 1, value)
+    return "\n".join(lines) + "\n"
+
+
+def codex_enable(config_path: Path, pid: str, enabled: bool) -> Callable[[], None]:
+    def go() -> None:
+        text = config_path.read_text() if config_path.exists() else ""
+        config_path.write_text(set_codex_plugin_enabled(text, pid, enabled))
+    return go
+
+
+def codex_plugin_dir(m: Machine, pid: str) -> Path:
+    plugin, _, marketplace = pid.partition("@")
+    return m.codex_dir / "plugins" / "cache" / marketplace / plugin
+
+
+def codex_plugin_skills(m: Machine, pid: str) -> set[str]:
+    root = codex_plugin_dir(m, pid)
+    names: set[str] = set()
+    for version in root.iterdir() if root.is_dir() else []:
+        names |= skill_names(version / "skills")
+    return names
+
+
+def install_pinned_skill(m: Machine, name: str, spec: dict) -> Callable[[], None]:
+    def go() -> None:
+        dest = m.agents_skills / name
+        url = f"https://codeload.github.com/{spec['repo']}/tar.gz/{spec['ref']}"
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "src.tar.gz"
+            with urllib.request.urlopen(url) as resp, archive.open("wb") as out:
+                shutil.copyfileobj(resp, out)
+            extract_subdir(archive, spec["path"], Path(tmp) / "out")
+            if dest.exists() or dest.is_symlink():
+                m.backup(dest, "agents-skills")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(Path(tmp) / "out"), str(dest))
+        write_json(dest / MARKER, {k: spec[k] for k in ("repo", "ref", "path")})
+    return go
+
+
+def extract_subdir(archive: Path, subpath: str, out: Path) -> None:
+    with tarfile.open(archive) as tar:
+        members = tar.getmembers()
+        top = next(mem.name.split("/")[0] for mem in members if "/" in mem.name)
+        prefix = f"{top}/{subpath.strip('/')}/"
+        chosen = [mem for mem in members if mem.name.startswith(prefix)]
+        if not chosen:
+            raise FileNotFoundError(f"{subpath} not found in {archive.name}")
+        with tempfile.TemporaryDirectory() as tmp:
+            tar.extractall(tmp, members=chosen, filter="data")
+            shutil.move(str(Path(tmp) / prefix), str(out))
+
+
+def plan_codex(m: Machine, base: dict, plan: Plan) -> None:
+    config_path = m.codex_dir / "config.toml"
+    config = tomllib.loads(config_path.read_text()) if config_path.exists() else {}
+    has_cli = shutil.which("codex") is not None
+
+    for name, source in entries(base.get("marketplaces", {})).items():
+        if name not in config.get("marketplaces", {}):
+            cmd = ["codex", "plugin", "marketplace", "add", source]
+            plan.actions.append(Action("codex-marketplace", name, " ".join(cmd), run_cli(cmd) if has_cli else None))
+
+    wanted = entries(base.get("plugins", {}))
+    configured = config.get("plugins", {})
+    for pid, want in wanted.items():
+        if want and not codex_plugin_dir(m, pid).is_dir():
+            cmd = ["codex", "plugin", "add", pid]
+            plan.actions.append(Action("codex-install", pid, " ".join(cmd), run_cli(cmd) if has_cli else None))
+        current = configured.get(pid, {}).get("enabled")
+        if current is not want:
+            plan.actions.append(Action("codex-enable", pid, f"enabled: {current} -> {want}", codex_enable(config_path, pid, want)))
+
+    pinned = entries(base.get("skills", {}))
+    for name, spec in pinned.items():
+        marker = read_json(m.agents_skills / name / MARKER)
+        if marker != {k: spec[k] for k in ("repo", "ref", "path")}:
+            plan.actions.append(Action(
+                "codex-pinned-skill", name, f"{spec['repo']}@{spec['ref'][:12]} {spec['path']}",
+                install_pinned_skill(m, name, spec)))
+
+    legacy = m.codex_dir / "skills"
+    for entry in sorted(legacy.iterdir()) if legacy.is_dir() else []:
+        if entry.name.startswith("."):
+            continue
+        plan.actions.append(Action(
+            "codex-legacy-skill", entry.name,
+            "~/.codex/skills is not a documented Codex skill location; move to backup",
+            lambda e=entry: m.backup(e, "codex-skills")))
+
+    plugin_skills: set[str] = set()
+    for pid, want in wanted.items():
+        if want:
+            plugin_skills |= codex_plugin_skills(m, pid)
+    external = set(base.get("externalSkills", []))
+    plan_duplicates(m, m.agents_skills, plugin_skills - external - set(pinned), "agents-skills", plan)
+
+    for name in sorted(skill_names(m.agents_skills) - plugin_skills - external - set(pinned)):
+        plan.notes.append(f"~/.agents/skills/{name} is not in the baseline")
+    for pid, entry in configured.items():
+        marketplace = pid.partition("@")[2]
+        if pid not in wanted and entry.get("enabled") and marketplace not in MANAGED_CODEX_MARKETPLACES_SKIP:
+            plan.notes.append(f"Codex plugin {pid} is enabled here but not in the baseline")
+
+
+# ---------------------------------------------------------------- shared rules
+
+
+def plan_duplicates(m: Machine, skills_dir: Path, plugin_skills: set[str], area: str, plan: Plan) -> None:
+    for entry in sorted(skills_dir.iterdir()) if skills_dir.is_dir() else []:
+        if entry.name not in plugin_skills:
+            continue
+        if entry.is_symlink():
+            plan.actions.append(Action(f"{area}-duplicate", entry.name, "symlink duplicates a plugin skill; unlink",
+                                       lambda e=entry: e.unlink()))
+        else:
+            plan.actions.append(Action(f"{area}-duplicate", entry.name, "copy duplicates a plugin skill; move to backup",
+                                       lambda e=entry: m.backup(e, area)))
+
+
+def git(project: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", "-C", str(project), *args], capture_output=True, text=True)
+
+
+def enable_local_plugins(project: Path, plugins: list[str]) -> Callable[[], None]:
+    def go() -> None:
+        path = project / ".claude" / "settings.local.json"
+        data = read_json(path)
+        for pid in plugins:
+            data.setdefault("enabledPlugins", {})[pid] = True
+        write_json(path, data)
+        if git(project, "rev-parse", "--is-inside-work-tree").returncode == 0 and \
+                git(project, "check-ignore", "-q", ".claude/settings.local.json").returncode != 0:
+            exclude = project / git(project, "rev-parse", "--git-path", "info/exclude").stdout.strip()
+            exclude.parent.mkdir(parents=True, exist_ok=True)
+            current = exclude.read_text() if exclude.exists() else ""
+            exclude.write_text(current + ("" if current.endswith("\n") or not current else "\n")
+                               + ".claude/settings.local.json\n")
+    return go
+
+
+def plan_projects(m: Machine, base: dict, plan: Plan) -> None:
+    roots = [m.home / r[2:] if r.startswith("~/") else Path(r) for r in base.get("roots", [])]
+    for rule in base.get("rules", []):
+        for root in roots:
+            for project in sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []:
+                if not any((project / marker).exists() for marker in rule["ifAnyExists"]):
+                    continue
+                path = project / ".claude" / "settings.local.json"
+                enabled = read_json(path).get("enabledPlugins", {})
+                missing = [pid for pid in rule["claudeLocalPlugins"] if enabled.get(pid) is not True]
+                if not missing:
+                    continue
+                tracked = git(project, "ls-files", "--error-unmatch", ".claude/settings.local.json").returncode == 0
+                detail = f"{rule['name']}: enable {', '.join(missing)} in .claude/settings.local.json"
+                if tracked:
+                    plan.actions.append(Action("project-rule", project.name, detail + " (file is tracked by git; edit by hand)"))
+                else:
+                    plan.actions.append(Action("project-rule", project.name, detail, enable_local_plugins(project, missing)))
+
+
+# ------------------------------------------------------------------------- CLI
+
+
+def build_plan(m: Machine, base: dict) -> Plan:
+    plan = Plan()
+    plan_claude(m, base.get("claude", {}), plan)
+    plan_codex(m, base.get("codex", {}), plan)
+    plan_projects(m, base.get("projects", {}), plan)
+    order = ["claude-marketplace", "codex-marketplace", "claude-install", "codex-install"]
+    plan.actions.sort(key=lambda a: order.index(a.kind) if a.kind in order else len(order))
+    return plan
+
+
+def print_plan(plan: Plan) -> None:
+    if not plan.actions:
+        print("No drift: this machine matches the baseline.")
+    for a in plan.actions:
+        flag = "" if a.run else "  [manual]"
+        print(f"- {a.kind:22} {a.target}: {a.detail}{flag}")
+    for note in plan.notes:
+        print(f"  note: {note}")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("command", choices=["audit", "apply"])
+    parser.add_argument("--json", action="store_true", help="audit: print machine-readable output")
+    parser.add_argument("--yes", action="store_true", help="apply: make the changes instead of only listing them")
+    parser.add_argument("--baseline", type=Path,
+                        default=Path(os.environ.get("AGENT_BASELINE", "~/.dotfiles/agents/baseline.json")).expanduser())
+    args = parser.parse_args(argv)
+
+    base = json.loads(args.baseline.read_text())
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    m = Machine(home=Path.home(), backup_root=Path.home() / ".local/state/agent-sync/backup" / stamp)
+    plan = build_plan(m, base)
+
+    if args.command == "audit":
+        if args.json:
+            print(json.dumps({"actions": [{"kind": a.kind, "target": a.target, "detail": a.detail,
+                                           "manual": a.run is None} for a in plan.actions],
+                              "notes": plan.notes}, indent=2, ensure_ascii=False))
+        else:
+            print_plan(plan)
+        return 1 if plan.actions else 0
+
+    print_plan(plan)
+    if not args.yes:
+        if plan.actions:
+            print("\nDry run. Re-run with --yes to apply.")
+        return 0
+    failed = 0
+    for a in plan.actions:
+        if a.run is None:
+            continue
+        try:
+            a.run()
+        except Exception as exc:  # report every failure, keep going with the rest
+            failed += 1
+            print(f"FAILED {a.kind} {a.target}: {exc}", file=sys.stderr)
+    if m.backup_root.exists():
+        print(f"Backups: {m.backup_root}")
+    print("Re-run `agent-sync audit` after installs: plugin skills are only known once installed.")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
