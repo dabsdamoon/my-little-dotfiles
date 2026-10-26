@@ -88,7 +88,8 @@
       "design-skills@my-little-skills": true,
       "document-skills@my-little-skills": true,
       "resume-skills@my-little-skills": true,
-      "character-production-skills@my-little-skills": true
+      "character-production-skills@my-little-skills": true,
+      "security-skills@my-little-skills": true
     },
     "skills": {
       "$comment": "Third-party skills that are not published as plugins, pinned to a commit and installed into ~/.agents/skills.",
