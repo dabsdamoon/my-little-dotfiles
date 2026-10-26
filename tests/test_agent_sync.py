@@ -227,10 +227,25 @@ def test_refresh_covers_registered_marketplaces_and_installed_baseline_plugins(t
                        "plugins": {"p@m": True, "off@official": False, "missing@m": True}},
             "codex": {"marketplaces": {"m": "https://x/r.git", "new": "https://x/new.git"}}}
 
-    assert agent_sync.refresh_commands(machine(tmp_path), base) == [
+    assert agent_sync.refresh_commands(machine(tmp_path), base)[0] == [
         ["claude", "plugin", "marketplace", "update", "m"],
         ["claude", "plugin", "marketplace", "update", "official"],
         ["claude", "plugin", "update", "p@m"],
         ["claude", "plugin", "update", "off@official"],
         ["codex", "plugin", "marketplace", "upgrade", "m"],
     ]
+
+
+def test_refresh_leaves_plugins_that_ship_npm_packages_to_a_person(tmp_path):
+    (tmp_path / "web").mkdir()
+    (tmp_path / "web" / "package.json").write_text('{"devDependencies": {"left-pad": "1.3.0"}}')
+    (tmp_path / "p").mkdir()
+    (tmp_path / "p" / "package.json").write_text('{"name": "p", "type": "module"}')
+    installed_claude(tmp_path, {"p@m": tmp_path / "p", "web@m": tmp_path / "web"}, {})
+    base = {"claude": {"plugins": {"p@m": True, "web@m": True}}}
+
+    commands, skipped = agent_sync.refresh_commands(machine(tmp_path), base)
+
+    assert ["claude", "plugin", "update", "p@m"] in commands
+    assert ["claude", "plugin", "update", "web@m"] not in commands
+    assert skipped == ["web@m"]

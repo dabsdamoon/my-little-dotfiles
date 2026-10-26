@@ -9,6 +9,8 @@ Usage:
 The baseline defaults to ~/.dotfiles/agents/baseline.json ($AGENT_BASELINE overrides).
 Anything agent-sync moves out of the way, and a copy of each settings file before its
 first edit, goes to ~/.local/state/agent-sync/backup/<timestamp>/.
+Plugins whose package.json lists dependencies are not updated: `claude plugin update`
+would install those npm packages, so they are printed for a person to review.
 """
 
 from __future__ import annotations
@@ -355,21 +357,29 @@ def plan_projects(m: Machine, base: dict, plan: Plan) -> None:
 # ------------------------------------------------------------------------- CLI
 
 
-def refresh_commands(m: Machine, base: dict) -> list[list[str]]:
+def ships_npm_packages(plugin_dir: Path) -> bool:
+    manifest = read_json(plugin_dir / "package.json")
+    return any(manifest.get(key) for key in ("dependencies", "devDependencies", "optionalDependencies"))
+
+
+def refresh_commands(m: Machine, base: dict) -> tuple[list[list[str]], list[str]]:
     claude, codex = base.get("claude", {}), base.get("codex", {})
     known = read_json(m.claude_dir / "plugins" / "known_marketplaces.json")
     installed = read_json(m.claude_dir / "plugins" / "installed_plugins.json").get("plugins", {})
     plugins = [pid for pid in entries(claude.get("plugins", {})) if pid in installed]
     marketplaces = {name for name in entries(claude.get("marketplaces", {})) if name in known}
     marketplaces |= {pid.partition("@")[2] for pid in plugins}
+    # `claude plugin update` also installs the npm packages a plugin lists, which needs a person's review first.
+    skipped = [pid for pid in plugins
+               if any(ships_npm_packages(Path(record["installPath"])) for record in installed[pid])]
     cmds = [["claude", "plugin", "marketplace", "update", name] for name in sorted(marketplaces)]
-    cmds += [["claude", "plugin", "update", pid] for pid in plugins]
+    cmds += [["claude", "plugin", "update", pid] for pid in plugins if pid not in skipped]
     config_path = m.codex_dir / "config.toml"
     configured = tomllib.loads(config_path.read_text()).get("marketplaces", {}) if config_path.exists() else {}
     # Codex re-syncs installed plugins from the refreshed snapshot; it has no per-plugin update command.
     cmds += [["codex", "plugin", "marketplace", "upgrade", name]
              for name in entries(codex.get("marketplaces", {})) if name in configured]
-    return cmds
+    return cmds, skipped
 
 
 def build_plan(m: Machine, base: dict) -> Plan:
@@ -407,7 +417,10 @@ def main(argv: list[str] | None = None) -> int:
     failed = 0
     if args.command == "apply" and args.yes:
         # A stale marketplace copy makes installs of newly added plugins fail.
-        for cmd in refresh_commands(m, base):
+        cmds, skipped = refresh_commands(m, base)
+        for pid in skipped:
+            print(f"Not updating {pid}: it ships npm packages. Review them, then run `claude plugin update {pid}`.")
+        for cmd in cmds:
             if shutil.which(cmd[0]) is None:
                 continue
             try:
