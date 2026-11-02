@@ -249,3 +249,64 @@ def test_refresh_leaves_plugins_that_ship_npm_packages_to_a_person(tmp_path):
     assert ["claude", "plugin", "update", "p@m"] in commands
     assert ["claude", "plugin", "update", "web@m"] not in commands
     assert skipped == ["web@m"]
+
+
+def write_catalog(root: Path, names: list[str]) -> Path:
+    (root / ".claude-plugin").mkdir(parents=True)
+    (root / ".claude-plugin" / "marketplace.json").write_text(json.dumps(
+        {"name": root.name, "plugins": [{"name": n, "source": f"./plugins/{n}"} for n in names]}))
+    return root
+
+
+def test_followed_marketplace_adds_plugins_the_baseline_does_not_name(tmp_path):
+    installed_claude(tmp_path, {"old@m": tmp_path / "old"}, {"old@m": True})
+    catalog = write_catalog(tmp_path / "copies" / "m", ["old", "new", "skipped"])
+    (tmp_path / ".claude" / "plugins" / "known_marketplaces.json").write_text(json.dumps(
+        {"m": {"installLocation": str(catalog)}}))
+    base = {"marketplaces": {"m": "o/r"}, "followMarketplaces": ["m"], "plugins": {"skipped@m": False}}
+
+    plan = agent_sync.Plan()
+    agent_sync.plan_claude(machine(tmp_path), base, plan)
+
+    assert [(a.kind, a.target, a.detail) for a in plan.actions] == [
+        ("claude-install", "new@m", "claude plugin install new@m"),
+        ("claude-enable", "new@m", "enabledPlugins: None -> True"),
+        ("claude-enable", "skipped@m", "enabledPlugins: None -> False"),
+    ]
+
+
+def test_an_off_plugin_is_installed_only_when_a_project_rule_turns_it_on(tmp_path):
+    installed_claude(tmp_path, {}, {})
+    base = {"plugins": {"web@official": False, "spare@official": False}}
+
+    plan = agent_sync.Plan()
+    agent_sync.plan_claude(machine(tmp_path), base, plan, {"web@official"})
+
+    assert [(a.kind, a.target) for a in plan.actions if a.kind == "claude-install"] == [
+        ("claude-install", "web@official")]
+
+
+def test_codex_follows_a_marketplace_copy_too(tmp_path):
+    write_catalog(tmp_path / ".codex" / ".tmp" / "marketplaces" / "m", ["kept", "new", "skipped"])
+    (tmp_path / ".codex" / "plugins" / "cache" / "m" / "kept" / "1.0.0").mkdir(parents=True)
+    (tmp_path / ".codex" / "config.toml").write_text(
+        '[marketplaces.m]\nsource_type = "git"\n\n[plugins."kept@m"]\nenabled = true\n')
+    base = {"followMarketplaces": ["m"], "plugins": {"skipped@m": False}}
+
+    plan = agent_sync.Plan()
+    agent_sync.plan_codex(machine(tmp_path), base, plan)
+
+    assert [(a.kind, a.target) for a in plan.actions] == [
+        ("codex-install", "new@m"), ("codex-enable", "new@m"), ("codex-enable", "skipped@m")]
+
+
+def test_refresh_updates_installed_plugins_of_a_followed_marketplace(tmp_path):
+    installed_claude(tmp_path, {"listed@m": tmp_path / "l", "followed@m": tmp_path / "f"}, {})
+    catalog = write_catalog(tmp_path / "copies" / "m", ["listed", "followed"])
+    (tmp_path / ".claude" / "plugins" / "known_marketplaces.json").write_text(json.dumps(
+        {"m": {"installLocation": str(catalog)}}))
+    base = {"claude": {"followMarketplaces": ["m"], "plugins": {"listed@m": True}}}
+
+    commands = agent_sync.refresh_commands(machine(tmp_path), base)[0]
+
+    assert ["claude", "plugin", "update", "followed@m"] in commands

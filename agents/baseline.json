@@ -4,7 +4,9 @@
     "marketplaces": {
       "my-little-skills": "dabsdamoon/my-little-skills"
     },
+    "followMarketplaces": ["my-little-skills"],
     "plugins": {
+      "$comment": "A followed marketplace's plugins are on unless named here, so a plugin added to it later is installed by `agent-sync apply --yes`. The my-little-skills entries set to false were left out before following began.",
       "superpowers@claude-plugins-official": true,
       "frontend-design@claude-plugins-official": false,
       "playwright@claude-plugins-official": true,
@@ -17,6 +19,16 @@
       "config-skills@my-little-skills": true,
       "llm-wiki-skills@my-little-skills": true,
       "design-skills@my-little-skills": true,
+      "analysis-skills@my-little-skills": false,
+      "document-skills@my-little-skills": false,
+      "fde-estimation-skills@my-little-skills": false,
+      "houmy-skills@my-little-skills": false,
+      "notion-workspace-skills@my-little-skills": false,
+      "resume-skills@my-little-skills": false,
+      "security-skills@my-little-skills": false,
+      "translation-skills@my-little-skills": false,
+      "academy-guide@my-little-skills": false,
+      "discernment-nudge@my-little-skills": false,
       "vercel@claude-plugins-official": false,
       "code-review@claude-plugins-official": false,
       "code-simplifier@claude-plugins-official": false,
@@ -73,7 +85,9 @@
     "marketplaces": {
       "my-little-skills": "https://github.com/dabsdamoon/my-little-skills.git"
     },
+    "followMarketplaces": ["my-little-skills"],
     "plugins": {
+      "$comment": "As for Claude: a followed marketplace's plugins are on unless named here; the false entries were left out before following began.",
       "superpowers@openai-curated-remote": true,
       "github@openai-curated": true,
       "google-drive@openai-curated": true,
@@ -90,7 +104,11 @@
       "document-skills@my-little-skills": true,
       "resume-skills@my-little-skills": true,
       "character-production-skills@my-little-skills": true,
-      "security-skills@my-little-skills": true
+      "security-skills@my-little-skills": true,
+      "notion-workspace-skills@my-little-skills": false,
+      "translation-skills@my-little-skills": false,
+      "academy-guide@my-little-skills": false,
+      "discernment-nudge@my-little-skills": false
     },
     "skills": {
       "$comment": "Third-party skills that are not published as plugins, pinned to a commit and installed into ~/.agents/skills.",

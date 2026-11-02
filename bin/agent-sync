@@ -109,6 +109,33 @@ def command_names(commands_dir: Path) -> set[str]:
     return {p.stem for p in commands_dir.glob("*.md")} if commands_dir.is_dir() else set()
 
 
+def catalog_plugins(root: Path) -> list[str]:
+    """Plugin names a marketplace copy lists. Claude reads .claude-plugin/; Codex reads either location."""
+    for manifest in (root / ".claude-plugin" / "marketplace.json", root / ".agents" / "plugins" / "marketplace.json"):
+        if manifest.exists():
+            return [entry["name"] for entry in read_json(manifest).get("plugins", [])]
+    return []
+
+
+def wanted_plugins(base: dict, roots: dict[str, Path]) -> dict:
+    """The baseline's plugins, plus every plugin a followed marketplace lists that the baseline does not name.
+    Neither agent installs a plugin newly added to a marketplace on its own; a name in the baseline wins."""
+    wanted = {f"{name}@{marketplace}": True
+              for marketplace in base.get("followMarketplaces", []) if marketplace in roots
+              for name in catalog_plugins(roots[marketplace])}
+    wanted.update(entries(base.get("plugins", {})))
+    return wanted
+
+
+def claude_marketplace_roots(known: dict) -> dict[str, Path]:
+    return {name: Path(entry["installLocation"]) for name, entry in known.items() if entry.get("installLocation")}
+
+
+def codex_marketplace_roots(m: Machine, base: dict) -> dict[str, Path]:
+    # Where Codex keeps Git marketplace copies (`codex plugin marketplace list` prints these roots).
+    return {name: m.codex_dir / ".tmp" / "marketplaces" / name for name in base.get("followMarketplaces", [])}
+
+
 # ---------------------------------------------------------------- Claude Code
 
 
@@ -121,7 +148,7 @@ def set_claude_setting(m: Machine, settings_path: Path, key: str, name: str, val
     return go
 
 
-def plan_claude(m: Machine, base: dict, plan: Plan) -> None:
+def plan_claude(m: Machine, base: dict, plan: Plan, local_plugins: set[str] = frozenset()) -> None:
     settings_path = m.claude_dir / "settings.json"
     settings = read_json(settings_path)
     known = read_json(m.claude_dir / "plugins" / "known_marketplaces.json")
@@ -133,9 +160,10 @@ def plan_claude(m: Machine, base: dict, plan: Plan) -> None:
             cmd = ["claude", "plugin", "marketplace", "add", repo]
             plan.actions.append(Action("claude-marketplace", name, " ".join(cmd), run_cli(cmd) if has_cli else None))
 
-    wanted = entries(base.get("plugins", {}))
+    wanted = wanted_plugins(base, claude_marketplace_roots(known))
     for pid, want in wanted.items():
-        if pid not in installed:
+        # An off plugin is installed only when a project rule turns it on locally.
+        if pid not in installed and (want or pid in local_plugins):
             cmd = ["claude", "plugin", "install", pid]
             plan.actions.append(Action("claude-install", pid, " ".join(cmd), run_cli(cmd) if has_cli else None))
         current = settings.get("enabledPlugins", {}).get(pid)
@@ -254,7 +282,7 @@ def plan_codex(m: Machine, base: dict, plan: Plan) -> None:
             cmd = ["codex", "plugin", "marketplace", "add", source]
             plan.actions.append(Action("codex-marketplace", name, " ".join(cmd), run_cli(cmd) if has_cli else None))
 
-    wanted = entries(base.get("plugins", {}))
+    wanted = wanted_plugins(base, codex_marketplace_roots(m, base))
     configured = config.get("plugins", {})
     for pid, want in wanted.items():
         if want and not codex_plugin_dir(m, pid).is_dir():
@@ -366,7 +394,7 @@ def refresh_commands(m: Machine, base: dict) -> tuple[list[list[str]], list[str]
     claude, codex = base.get("claude", {}), base.get("codex", {})
     known = read_json(m.claude_dir / "plugins" / "known_marketplaces.json")
     installed = read_json(m.claude_dir / "plugins" / "installed_plugins.json").get("plugins", {})
-    plugins = [pid for pid in entries(claude.get("plugins", {})) if pid in installed]
+    plugins = [pid for pid in wanted_plugins(claude, claude_marketplace_roots(known)) if pid in installed]
     marketplaces = {name for name in entries(claude.get("marketplaces", {})) if name in known}
     marketplaces |= {pid.partition("@")[2] for pid in plugins}
     # `claude plugin update` also installs the npm packages a plugin lists, which needs a person's review first.
@@ -384,7 +412,8 @@ def refresh_commands(m: Machine, base: dict) -> tuple[list[list[str]], list[str]
 
 def build_plan(m: Machine, base: dict) -> Plan:
     plan = Plan()
-    plan_claude(m, base.get("claude", {}), plan)
+    local = {pid for rule in base.get("projects", {}).get("rules", []) for pid in rule.get("claudeLocalPlugins", [])}
+    plan_claude(m, base.get("claude", {}), plan, local)
     plan_codex(m, base.get("codex", {}), plan)
     plan_projects(m, base.get("projects", {}), plan)
     order = ["claude-marketplace", "codex-marketplace", "claude-install", "codex-install"]
